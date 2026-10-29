@@ -371,6 +371,10 @@ export const getOwnerSteps = (t: (key: string) => string): DriveStep[] => {
       showButtons: ['next', 'previous']
     }
   })
+  const withPopoverClass = (step: DriveStep, popoverClass: string): DriveStep => ({
+    ...step,
+    popover: { ...step.popover, popoverClass }
+  })
   const S = OWNER_TOUR_SELECTORS
 
   return [
@@ -414,7 +418,9 @@ export const getOwnerSteps = (t: (key: string) => string): DriveStep[] => {
     info('[data-tour="account-form-priority"]', 'accountPriority', 'top', 'start'),
     info('[data-tour="account-form-groups"]', 'accountGroups', 'top', 'center'),
     click(S.accountSubmit, 'accountSubmit', 'left', 'center'),
-    click(S.accountAuthorize, 'accountAuthorize', 'left', 'start'),
+    // The whole dialog is highlighted here, so a positioned popover would cover the
+    // authorization code field; dock it in the corner instead (onboarding.css).
+    withPopoverClass(click(S.accountAuthorize, 'accountAuthorize', 'left', 'start'), 'theme-tour-popover tour-popover-docked'),
     info(S.accountRowMore, 'accountTest', 'left', 'center'),
 
     // ========== 第四部分：用量 ==========

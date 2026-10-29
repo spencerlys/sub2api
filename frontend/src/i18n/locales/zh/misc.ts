@@ -400,7 +400,7 @@ export default {
       },
       accountAuthorize: {
         title: '授权账号',
-        description: '<div style="line-height: 1.7;"><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>步骤：</b><ul style="margin: 8px 0 0 16px;"><li>点击「生成授权 URL」</li><li>在<b>使用与该账号相同代理</b>的浏览器中打开该 URL，并登录 Claude 账号</li><li>把「授权码」粘贴回这里</li><li>点击「完成授权」</li></ul></div><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>为什么要用同一代理：</b> 这样账号登录和处理请求都来自同一地址。</div><p style="font-size: 13px; color: #6b7280;">账号创建成功后引导将继续。</p></div>'
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;">在对话框中：「生成授权 URL」→ 登录 → 粘贴授权码 →「完成授权」。</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 10px;">请在<b>使用与该账号相同代理</b>的浏览器中打开授权 URL，让账号登录和处理请求都来自同一地址。</div><p style="font-size: 13px; color: #6b7280;">账号创建成功后引导将继续。</p></div>'
       },
       accountTest: {
         title: '测试连接',

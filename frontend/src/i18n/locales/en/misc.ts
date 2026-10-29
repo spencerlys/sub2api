@@ -382,7 +382,7 @@ export default {
       },
       accountAuthorize: {
         title: 'Authorize the Account',
-        description: '<div style="line-height: 1.7;"><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Steps:</b><ul style="margin: 8px 0 0 16px;"><li>Click "Generate Auth URL"</li><li>Open the URL in a browser that uses <b>the same proxy</b> as this account and sign in to the Claude account</li><li>Paste the "Authorization Code" back here</li><li>Click "Complete Authorization"</li></ul></div><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Why the same proxy:</b> the account then signs in and serves requests from the same address.</div><p style="font-size: 13px; color: #6b7280;">The tour continues once the account has been created.</p></div>'
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 10px;">In the dialog: "Generate Auth URL" → sign in → paste the code → "Complete Authorization".</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 10px;">Open the auth URL in a browser that uses <b>the same proxy</b> as this account, so it signs in and serves requests from the same address.</div><p style="font-size: 13px; color: #6b7280;">The tour continues once the account has been created.</p></div>'
       },
       accountTest: {
         title: 'Test the Connection',

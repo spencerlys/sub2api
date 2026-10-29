@@ -282,6 +282,9 @@ export function useOnboardingTour(options: OnboardingOptions) {
              } else {
                activeNextBtn.classList.remove(CLASS_DONE_BTN)
              }
+             // Steps advanced by business code (e.g. once an account is created) can't
+             // be skipped with Next, so don't show a button that does nothing.
+             ;(activeNextBtn as HTMLElement).style.display = isManualAdvanceStep(state.activeStep) ? 'none' : ''
           }
         } catch (e) {
           console.error('Onboarding Tour Render Error:', e)
@@ -299,6 +302,15 @@ export function useOnboardingTour(options: OnboardingOptions) {
            const exists = await ensureElement(step.element, 8000)
            if (!exists) {
              console.warn(`Tour element not found after 8s: ${step.element}`)
+             return
+           }
+           // The step was shown before its page finished rendering (e.g. right after
+           // a sidebar click), so driver highlighted its placeholder and the overlay
+           // now covers the real target. Re-run the step so the element is
+           // highlighted and clickable; this handler runs again with the element.
+           const activeIndex = driverInstance?.getActiveIndex()
+           if (driverInstance && activeIndex !== undefined && driverInstance.getActiveStep() === step) {
+             driverInstance.moveTo(activeIndex)
              return
            }
            element = document.querySelector(step.element) as HTMLElement

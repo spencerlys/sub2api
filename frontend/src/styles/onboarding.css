@@ -227,3 +227,15 @@
 .dark .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: #1e293b !important; }
 .dark .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: #1e293b !important; }
 .dark .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: #1e293b !important; }
+
+/* Docked popover: used where the highlighted element is a whole dialog (owner
+   account authorization), so the popover must not sit on top of its inputs. */
+.driver-popover.tour-popover-docked {
+  position: fixed !important;
+  top: auto !important;
+  right: auto !important;
+  left: 16px !important;
+  bottom: 16px !important;
+  max-width: min(300px, calc(100vw - 32px)) !important;
+}
+.driver-popover.tour-popover-docked .driver-popover-arrow { display: none !important; }
