@@ -12,7 +12,7 @@ describe('roleHome', () => {
   })
 
   it('allows owners only their scoped admin pages', () => {
-    for (const p of ['/admin/accounts', '/admin/proxies', '/admin/groups', '/admin/usage']) {
+    for (const p of ['/admin/accounts', '/admin/accounts/health', '/admin/proxies', '/admin/groups', '/admin/usage']) {
       expect(isOwnerAllowedAdminPath(p)).toBe(true)
     }
     for (const p of ['/admin', '/admin/dashboard', '/admin/users', '/admin/settings', '/admin/accounts-x', '/admin/channels/pricing']) {

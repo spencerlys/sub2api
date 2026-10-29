@@ -527,6 +527,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/accounts/health',
+    name: 'AdminAccountHealth',
+    component: () => import('@/views/admin/AccountHealthView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Account Health',
+      titleKey: 'admin.accountHealth.title',
+      descriptionKey: 'admin.accountHealth.description'
+    }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),

@@ -17,6 +17,7 @@ func TestOwnerPolicyAllowsOnlyOwnerCatalogue(t *testing.T) {
 		{"GET", "/api/v1/admin/accounts"}, {"POST", "/api/v1/admin/accounts"}, {"PUT", "/api/v1/admin/accounts/:id"},
 		{"DELETE", "/api/v1/admin/accounts/:id"}, {"POST", "/api/v1/admin/accounts/:id/test"},
 		{"GET", "/api/v1/admin/accounts/:id/stats"}, {"POST", "/api/v1/admin/accounts/today-stats/batch"},
+		{"GET", "/api/v1/admin/accounts/health"},
 		{"POST", "/api/v1/admin/accounts/generate-auth-url"}, {"POST", "/api/v1/admin/accounts/exchange-code"},
 		{"POST", "/api/v1/admin/accounts/exchange-setup-token-code"},
 		{"GET", "/api/v1/admin/groups"}, {"POST", "/api/v1/admin/groups"}, {"PUT", "/api/v1/admin/groups/:id"},
