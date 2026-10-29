@@ -251,32 +251,13 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 func (r *dashboardAggregationRepository) cleanupUsageLogsBatches(ctx context.Context, cutoff time.Time) error {
 	db, transactional := r.sql.(*sql.DB)
 	for {
+		var affected int64
+		var err error
 		if transactional {
-			affected, err := cleanupUsageLogsBatchWithRollupInvalidation(ctx, db, cutoff)
-			if err != nil {
-				return err
-			}
-			if affected < usageLogsCleanupBatchSize {
-				return nil
-			}
-			continue
+			affected, err = cleanupUsageLogsBatchInTx(ctx, db, cutoff)
+		} else {
+			affected, err = cleanupUsageLogsBatchReleasingRollups(ctx, r.sql, cutoff)
 		}
-
-		res, err := r.sql.ExecContext(ctx, `
-			WITH victims AS (
-				SELECT tableoid, ctid
-				FROM usage_logs
-				WHERE created_at < $1
-				ORDER BY created_at ASC, id ASC
-				LIMIT $2
-			)
-			DELETE FROM usage_logs
-			WHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM victims)
-		`, cutoff.UTC(), usageLogsCleanupBatchSize)
-		if err != nil {
-			return err
-		}
-		affected, err := res.RowsAffected()
 		if err != nil {
 			return err
 		}
@@ -286,62 +267,96 @@ func (r *dashboardAggregationRepository) cleanupUsageLogsBatches(ctx context.Con
 	}
 }
 
-func cleanupUsageLogsBatchWithRollupInvalidation(ctx context.Context, db *sql.DB, cutoff time.Time) (int64, error) {
+func cleanupUsageLogsBatchInTx(ctx context.Context, db *sql.DB, cutoff time.Time) (int64, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	rollback := func(err error) (int64, error) {
+	affected, err := cleanupUsageLogsBatchReleasingRollups(ctx, tx, cutoff)
+	if err != nil {
 		_ = tx.Rollback()
 		return 0, err
 	}
-
-	if err := lockGroupUsageRollupState(ctx, tx); err != nil {
-		return rollback(err)
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
-	rows, err := tx.QueryContext(ctx, `
+	return affected, nil
+}
+
+// cleanupUsageLogsBatchReleasingRollups 删除一批过期 usage_logs，并在同一事务内从分组日桶中
+// 精确扣掉被删记录的金额。
+//
+// 过期删除不能像普通改动那样后退 closed_before：被删的总是最早的记录，水位一旦退到保留起点，
+// 随后的同步就要在持有状态行 FOR UPDATE 的事务里重建整个保留窗口（约 90 天）的日桶，
+// 期间所有带分组的 usage_logs 写入（触发器要拿 FOR KEY SHARE）都被阻塞。
+// 发布区间内的日桶恒等于当天剩余记录之和，扣减后该不变式依然成立，因此水位原样保留即可。
+func cleanupUsageLogsBatchReleasingRollups(ctx context.Context, q sqlExecutor, cutoff time.Time) (int64, error) {
+	var closedBefore string
+	if err := scanSingleRow(ctx, q, `
+		SELECT closed_before::text
+		FROM usage_group_rollup_state
+		WHERE id = 1
+		FOR UPDATE
+	`, nil, &closedBefore); err != nil {
+		return 0, fmt.Errorf("锁定分组用量汇总水位: %w", err)
+	}
+
+	var affected int64
+	var lastDeletedAt sql.NullTime
+	if err := scanSingleRow(ctx, q, `
 		WITH victims AS (
 			SELECT tableoid, ctid
 			FROM usage_logs
 			WHERE created_at < $1
 			ORDER BY created_at ASC, id ASC
 			LIMIT $2
+		),
+		deleted AS (
+			DELETE FROM usage_logs
+			WHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM victims)
+			RETURNING created_at, group_id, actual_cost
+		),
+		released AS (
+			SELECT
+				(created_at AT TIME ZONE $3::text)::date AS bucket_date,
+				group_id,
+				SUM(actual_cost) AS actual_cost
+			FROM deleted
+			WHERE group_id IS NOT NULL
+			GROUP BY 1, 2
+		),
+		adjusted AS (
+			UPDATE usage_group_daily_rollups rollup
+			SET actual_cost = rollup.actual_cost - released.actual_cost,
+				computed_at = NOW()
+			FROM released
+			WHERE rollup.bucket_date = released.bucket_date
+				AND rollup.group_id = released.group_id
 		)
-		DELETE FROM usage_logs
-		WHERE (tableoid, ctid) IN (SELECT tableoid, ctid FROM victims)
-		RETURNING created_at
-	`, cutoff.UTC(), usageLogsCleanupBatchSize)
-	if err != nil {
-		return rollback(err)
+		SELECT COUNT(*), MAX(created_at) FROM deleted
+	`, []any{cutoff.UTC(), usageLogsCleanupBatchSize, service.GroupUsageTimezoneName()}, &affected, &lastDeletedAt); err != nil {
+		return 0, err
+	}
+	if affected == 0 || !lastDeletedAt.Valid {
+		return affected, nil
 	}
 
-	var affected int64
-	var earliestDeletedAt time.Time
-	for rows.Next() {
-		var deletedAt time.Time
-		if err := rows.Scan(&deletedAt); err != nil {
-			_ = rows.Close()
-			return rollback(err)
-		}
-		affected++
-		if earliestDeletedAt.IsZero() || deletedAt.Before(earliestDeletedAt) {
-			earliestDeletedAt = deletedAt
-		}
+	// victims 按 created_at 升序取，剩余记录都不早于 lastDeletedAt：更早自然日的日桶已扣成 0，直接剪掉。
+	if _, err := q.ExecContext(ctx, `
+		DELETE FROM usage_group_daily_rollups
+		WHERE bucket_date < $1::date
+	`, service.GroupUsageDate(lastDeletedAt.Time)); err != nil {
+		return 0, fmt.Errorf("剪除过期分组用量日桶: %w", err)
 	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		return rollback(err)
-	}
-	if err := rows.Close(); err != nil {
-		return rollback(err)
-	}
-	if affected > 0 {
-		if err := invalidateGroupUsageRollupsAt(ctx, tx, earliestDeletedAt); err != nil {
-			return rollback(err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
+	// 行级 DELETE 触发器已把 closed_before 退到被删记录的日期；日桶已在上面同步扣减，原样写回。
+	if _, err := q.ExecContext(ctx, `
+		UPDATE usage_group_rollup_state
+		SET closed_before = $1::date,
+			retained_from = GREATEST(retained_from, $2),
+			updated_at = NOW()
+		WHERE id = 1
+	`, closedBefore, lastDeletedAt.Time.UTC()); err != nil {
+		return 0, fmt.Errorf("更新分组用量汇总保留起点: %w", err)
 	}
 	return affected, nil
 }
@@ -630,42 +645,91 @@ func (r *dashboardAggregationRepository) dropUsageLogsPartitions(ctx context.Con
 	sort.Slice(partitions, func(i, j int) bool {
 		return partitions[i].month.Before(partitions[j].month)
 	})
-	if db, ok := r.sql.(*sql.DB); ok {
-		for _, partition := range partitions {
-			if err := dropUsageLogsPartitionWithRollupInvalidation(ctx, db, partition.name, partition.month); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
+	db, transactional := r.sql.(*sql.DB)
 	for _, partition := range partitions {
-		if _, err := r.sql.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", pq.QuoteIdentifier(partition.name))); err != nil {
+		var err error
+		if transactional {
+			err = dropUsageLogsPartitionInTx(ctx, db, partition.name, partition.month)
+		} else {
+			err = dropUsageLogsPartitionReleasingRollups(ctx, r.sql, partition.name, partition.month)
+		}
+		if err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db *sql.DB, name string, monthStart time.Time) error {
+func dropUsageLogsPartitionInTx(ctx context.Context, db *sql.DB, name string, monthStart time.Time) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	rollback := func(err error) error {
+	if err := dropUsageLogsPartitionReleasingRollups(ctx, tx, name, monthStart); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
-
-	if err := lockGroupUsageRollupState(ctx, tx); err != nil {
-		return rollback(err)
-	}
-	if err := invalidateGroupUsageRollupsAt(ctx, tx, monthStart); err != nil {
-		return rollback(err)
-	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", pq.QuoteIdentifier(name))); err != nil {
-		return rollback(err)
-	}
 	return tx.Commit()
+}
+
+// dropUsageLogsPartitionReleasingRollups 删除一个过期月分区，并在同一事务内从分组日桶中扣掉该分区的金额。
+// 与按批删除一样，过期删除不后退 closed_before（DROP 也不会触发行级触发器），见 cleanupUsageLogsBatchReleasingRollups。
+//
+// 分区按 UTC 月切，日桶按配置时区的自然日切：完全落在分区内的自然日只含本分区的记录，整桶删除即可；
+// 只有首尾两个可能跨界的自然日需要按本分区的记录扣减，最多两天的数据，不必扫描整个分区。
+func dropUsageLogsPartitionReleasingRollups(ctx context.Context, q sqlExecutor, name string, monthStart time.Time) error {
+	if err := lockGroupUsageRollupState(ctx, q); err != nil {
+		return err
+	}
+	quotedName := pq.QuoteIdentifier(name)
+	var exists bool
+	if err := scanSingleRow(ctx, q, "SELECT to_regclass($1) IS NOT NULL", []any{quotedName}, &exists); err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+
+	interiorStart, interiorEnd := groupUsageRollupPartitionInterior(monthStart)
+	if _, err := q.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE usage_group_daily_rollups rollup
+		SET actual_cost = rollup.actual_cost - released.actual_cost,
+			computed_at = NOW()
+		FROM (
+			SELECT
+				(created_at AT TIME ZONE $3::text)::date AS bucket_date,
+				group_id,
+				SUM(actual_cost) AS actual_cost
+			FROM %s
+			WHERE group_id IS NOT NULL
+				AND (created_at < $1 OR created_at >= $2)
+			GROUP BY 1, 2
+		) released
+		WHERE rollup.bucket_date = released.bucket_date
+			AND rollup.group_id = released.group_id
+	`, quotedName), interiorStart, interiorEnd, service.GroupUsageTimezoneName()); err != nil {
+		return fmt.Errorf("扣减过期分区的分组用量日桶: %w", err)
+	}
+	if _, err := q.ExecContext(ctx, `
+		DELETE FROM usage_group_daily_rollups
+		WHERE bucket_date >= $1::date AND bucket_date < $2::date
+	`, service.GroupUsageDate(interiorStart), service.GroupUsageDate(interiorEnd)); err != nil {
+		return fmt.Errorf("删除过期分区的分组用量日桶: %w", err)
+	}
+	_, err := q.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", quotedName))
+	return err
+}
+
+// groupUsageRollupPartitionInterior 返回 UTC 月分区 [monthStart, 下月) 完整覆盖的配置时区自然日区间 [start, end)：
+// start 是不早于分区下界的第一个本地零点，end 是不晚于分区上界的最后一个本地零点。
+func groupUsageRollupPartitionInterior(monthStart time.Time) (time.Time, time.Time) {
+	monthStart = truncateToMonthUTC(monthStart)
+	start := truncateToDay(monthStart)
+	if start.Before(monthStart) {
+		start = truncateToDay(start.AddDate(0, 0, 1))
+	}
+	end := truncateToDay(monthStart.AddDate(0, 1, 0))
+	return start.UTC(), end.UTC()
 }
 
 func (r *dashboardAggregationRepository) createUsageLogsPartition(ctx context.Context, month time.Time) error {

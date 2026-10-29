@@ -282,14 +282,14 @@ func (r *dashboardAggregationRepository) syncGroupUsageRollupsInTx(ctx context.C
 	return nil
 }
 
-func lockGroupUsageRollupState(ctx context.Context, tx *sql.Tx) error {
+func lockGroupUsageRollupState(ctx context.Context, q sqlQueryer) error {
 	var id int16
-	if err := tx.QueryRowContext(ctx, `
+	if err := scanSingleRow(ctx, q, `
 		SELECT id
 		FROM usage_group_rollup_state
 		WHERE id = 1
 		FOR UPDATE
-	`).Scan(&id); err != nil {
+	`, nil, &id); err != nil {
 		return fmt.Errorf("锁定分组用量汇总水位: %w", err)
 	}
 	return nil

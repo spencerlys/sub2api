@@ -10,6 +10,8 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	gocache "github.com/patrickmn/go-cache"
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -60,7 +62,17 @@ type UsageService struct {
 	userRepo             UserRepository
 	entClient            *dbent.Client
 	authCacheInvalidator APIKeyAuthCacheInvalidator
+
+	// 仪表盘汇总（用户仪表盘、GET /v1/usage）的进程内缓存，见 cachedDashboardStats。
+	dashboardStatsCache *gocache.Cache
+	dashboardStatsSF    singleflight.Group
+	dashboardStatsTTL   time.Duration
 }
+
+// usageDashboardStatsCacheTTL 是仪表盘汇总的缓存时长。
+// 这两类汇总每次都要扫该用户 / 该 API Key 的全部 usage_logs，而客户端会高频轮询 GET /v1/usage；
+// 代价是缓存期内新产生的用量不会立刻体现：累计、今日与 RPM/TPM 数据最多滞后一个 TTL（多实例时各自独立缓存）。
+const usageDashboardStatsCacheTTL = 30 * time.Second
 
 // NewUsageService 创建使用统计服务实例
 func NewUsageService(usageRepo UsageLogRepository, userRepo UserRepository, entClient *dbent.Client, authCacheInvalidator APIKeyAuthCacheInvalidator) *UsageService {
@@ -69,6 +81,8 @@ func NewUsageService(usageRepo UsageLogRepository, userRepo UserRepository, entC
 		userRepo:             userRepo,
 		entClient:            entClient,
 		authCacheInvalidator: authCacheInvalidator,
+		dashboardStatsCache:  gocache.New(usageDashboardStatsCacheTTL, time.Minute),
+		dashboardStatsTTL:    usageDashboardStatsCacheTTL,
 	}
 }
 
@@ -290,8 +304,11 @@ func (s *UsageService) Delete(ctx context.Context, id int64) error {
 }
 
 // GetUserDashboardStats returns per-user dashboard summary stats.
+// Results are cached per user for usageDashboardStatsCacheTTL.
 func (s *UsageService) GetUserDashboardStats(ctx context.Context, userID int64) (*usagestats.UserDashboardStats, error) {
-	stats, err := s.usageRepo.GetUserDashboardStats(ctx, userID)
+	stats, err := s.cachedDashboardStats(ctx, fmt.Sprintf("user:%d", userID), func(ctx context.Context) (*usagestats.UserDashboardStats, error) {
+		return s.usageRepo.GetUserDashboardStats(ctx, userID)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get user dashboard stats: %w", err)
 	}
@@ -299,12 +316,56 @@ func (s *UsageService) GetUserDashboardStats(ctx context.Context, userID int64) 
 }
 
 // GetAPIKeyDashboardStats returns dashboard summary stats filtered by API Key.
+// Results are cached per API Key for usageDashboardStatsCacheTTL.
 func (s *UsageService) GetAPIKeyDashboardStats(ctx context.Context, apiKeyID int64) (*usagestats.UserDashboardStats, error) {
-	stats, err := s.usageRepo.GetAPIKeyDashboardStats(ctx, apiKeyID)
+	stats, err := s.cachedDashboardStats(ctx, fmt.Sprintf("api_key:%d", apiKeyID), func(ctx context.Context) (*usagestats.UserDashboardStats, error) {
+		return s.usageRepo.GetAPIKeyDashboardStats(ctx, apiKeyID)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get api key dashboard stats: %w", err)
 	}
 	return stats, nil
+}
+
+// cachedDashboardStats 以进程内 TTL 缓存 + singleflight 包装仪表盘汇总查询：
+// 命中时不访问数据库，并发未命中只查一次；错误不缓存。返回值是副本，调用方可随意修改。
+func (s *UsageService) cachedDashboardStats(
+	ctx context.Context,
+	key string,
+	load func(context.Context) (*usagestats.UserDashboardStats, error),
+) (*usagestats.UserDashboardStats, error) {
+	if s.dashboardStatsCache == nil {
+		return load(ctx)
+	}
+	if cached, ok := s.dashboardStatsCache.Get(key); ok {
+		if stats, ok := cached.(*usagestats.UserDashboardStats); ok {
+			return cloneUserDashboardStats(stats), nil
+		}
+	}
+	value, err, _ := s.dashboardStatsSF.Do(key, func() (any, error) {
+		stats, err := load(ctx)
+		if err != nil {
+			return nil, err
+		}
+		s.dashboardStatsCache.Set(key, stats, s.dashboardStatsTTL)
+		return stats, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	stats, _ := value.(*usagestats.UserDashboardStats)
+	return cloneUserDashboardStats(stats), nil
+}
+
+func cloneUserDashboardStats(stats *usagestats.UserDashboardStats) *usagestats.UserDashboardStats {
+	if stats == nil {
+		return nil
+	}
+	cp := *stats
+	if stats.ByPlatform != nil {
+		cp.ByPlatform = append([]usagestats.PlatformDashboardStats(nil), stats.ByPlatform...)
+	}
+	return &cp
 }
 
 // GetUserUsageTrendByUserID returns per-user usage trend.
