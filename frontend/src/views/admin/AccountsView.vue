@@ -518,7 +518,7 @@ import AccountTableFilters from '@/components/admin/account/AccountTableFilters.
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import { OWNER_TOUR_SELECTORS } from '@/components/Guide/steps'
-import { advanceTourIfCurrent } from '@/components/Guide/tourControl'
+import { advanceTourPastIfCurrent } from '@/components/Guide/tourControl'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
@@ -1209,11 +1209,12 @@ const reload = async () => {
   await refreshTodayStatsBatch()
 }
 
-// After an account is created, the owner onboarding tour (if waiting on the
-// authorization step) moves on to the row actions once the list has reloaded.
+// After an account is created, the owner onboarding tour moves on to the row
+// actions once the list has reloaded: from the authorization step (OAuth), or
+// straight from the submit step (API key / Bedrock accounts have no authorization).
 const handleAccountCreated = async () => {
   await reload()
-  advanceTourIfCurrent(OWNER_TOUR_SELECTORS.accountAuthorize, 300)
+  advanceTourPastIfCurrent([OWNER_TOUR_SELECTORS.accountSubmit, OWNER_TOUR_SELECTORS.accountAuthorize], 300)
 }
 
 const buildUpstreamBillingRateFilters = () => {

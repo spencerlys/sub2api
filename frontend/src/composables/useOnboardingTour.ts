@@ -26,6 +26,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
   const TIMING = {
     INTERACTIVE_WAIT_MS: 800,        // Default wait time for interactive steps
     ELEMENT_TIMEOUT_MS: 8000,        // Timeout for element detection
+    FIELD_WAIT_MS: 1500,             // Wait for an info step's form field inside an open dialog
     AUTO_START_DELAY_MS: 1000        // Delay before auto-starting tour
   } as const
 
@@ -51,6 +52,32 @@ export function useOnboardingTour(options: OnboardingOptions) {
       : typeof step.element === 'function' ? step.element() : step.element
     return isSubmitTarget(element ?? null)
   }
+
+  // Helper: resolve a selector without throwing on selectors an older browser
+  // cannot parse (e.g. :has)
+  const queryTarget = (selector: string): HTMLElement | null => {
+    try {
+      return document.querySelector<HTMLElement>(selector)
+    } catch {
+      return null
+    }
+  }
+
+  // Helper: a step is reachable when it has no target or its target is rendered
+  const isStepOnScreen = (step: DriveStep): boolean =>
+    typeof step.element !== 'string' || queryTarget(step.element) !== null
+
+  // Helper: keys typed here belong to the field (caret, option, radio selection)
+  const isEditableTarget = (target: HTMLElement | null): boolean =>
+    !!target && (
+      ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+      target.isContentEditable ||
+      target.closest('[contenteditable]:not([contenteditable="false"])') !== null
+    )
+
+  // Helper: Enter on these is handled natively (activates the control)
+  const isInteractiveControl = (target: HTMLElement | null): boolean =>
+    !!target && target.closest('button, a, input, textarea, select') !== null
 
   // Helper: Clean up click listener
   const cleanupClickListener = () => {
@@ -146,21 +173,53 @@ export function useOnboardingTour(options: OnboardingOptions) {
       driverInstance.destroy()
     }
 
+    const lastIndex = steps.length - 1
+    let skipInProgress = false
+    // Index of the last highlighted step and the direction the tour moved to reach
+    // the current one; missing form fields are skipped in that direction.
+    let lastHighlightedIndex = -1
+    let navigationDirection: 1 | -1 = 1
+
+    const finishTour = () => {
+      markAsSeen()
+      driverInstance?.destroy()
+      onboardingStore.setDriverInstance(null)
+    }
+
+    // First step after `fromIndex` in `direction` whose target is on screen
+    const findStepOnScreen = (fromIndex: number, direction: 1 | -1): number | undefined => {
+      for (let index = fromIndex + direction; index >= 0 && index < steps.length; index += direction) {
+        if (isStepOnScreen(steps[index])) return index
+      }
+      return undefined
+    }
+
+    // Back skips steps whose target is gone (e.g. a dialog that has since closed)
+    const goPrevious = () => {
+      const target = findStepOnScreen(driverInstance?.getActiveIndex() ?? 0, -1)
+      if (target !== undefined) driverInstance?.moveTo(target)
+    }
+
     // Skip a step that needs a real save: close the open dialog, then go to the next
     // step whose target is on screen, passing over steps that depend on the skipped
     // resource (e.g. the authorization dialog or the new account's row).
     const skipForward = async (fromIndex: number) => {
-      document.querySelectorAll<HTMLElement>('[role="dialog"] button[aria-label="Close modal"]').forEach((button) => button.click())
-      await nextTick()
-      await new Promise((resolve) => setTimeout(resolve, TIMING.INTERACTIVE_WAIT_MS))
-      for (let index = fromIndex + 1; index < steps.length; index++) {
-        const target = steps[index].element
-        if (typeof target !== 'string' || document.querySelector(target)) {
-          driverInstance?.moveTo(index)
-          return
-        }
+      if (skipInProgress) return
+      skipInProgress = true
+      const instance = driverInstance
+      try {
+        document.querySelectorAll<HTMLElement>('[role="dialog"] button[aria-label="Close modal"]').forEach((button) => button.click())
+        await nextTick()
+        await new Promise((resolve) => setTimeout(resolve, TIMING.INTERACTIVE_WAIT_MS))
+        // The tour may have been closed or moved on (ESC, business code) meanwhile
+        if (!instance?.isActive() || instance !== driverInstance || instance.getActiveIndex() !== fromIndex) return
+        const target = findStepOnScreen(fromIndex, 1)
+        if (target !== undefined) instance.moveTo(target)
+        else if (fromIndex === lastIndex) finishTour()
+        else instance.moveTo(lastIndex)
+      } finally {
+        skipInProgress = false
       }
-      driverInstance?.moveTo(steps.length - 1)
     }
 
     // 创建新的 driver 实例并存储到 store
@@ -169,6 +228,9 @@ export function useOnboardingTour(options: OnboardingOptions) {
       steps,
       animate: true,
       allowClose: false, // 禁止点击遮罩关闭
+      // driver listens to keyup on window regardless of focus, so arrows typed into a
+      // form field would move or skip steps; globalKeyboardHandler is the only path.
+      allowKeyboardControl: false,
       stagePadding: 4,
       // Lighter than driver's default 0.7 so the rest of a form stays readable.
       overlayOpacity: 0.4,
@@ -178,22 +240,22 @@ export function useOnboardingTour(options: OnboardingOptions) {
       doneBtnText: t('common.confirm'),
 
       // 导航处理
-      onNextClick: async (_el, _step, { config, state }) => {
+      onNextClick: async (_el, _step, { state }) => {
+        const currentIndex = state.activeIndex ?? 0
+        const currentStep = steps[currentIndex]
+
+        // Checked before the last step: Skip on a final submit step must still close
+        // its dialog before the tour finishes.
+        if (isSkippableStep(currentStep)) {
+          await skipForward(currentIndex)
+          return
+        }
+
         // 如果是最后一步，点击则是"完成"
-        if (state.activeIndex === (config.steps?.length ?? 0) - 1) {
-          markAsSeen()
-          driverInstance?.destroy()
-          onboardingStore.setDriverInstance(null)
+        if (currentIndex === lastIndex) {
+          finishTour()
         } else {
           // 注意：交互式步骤通常隐藏 Next 按钮，此处逻辑为防御性编程
-          const currentIndex = state.activeIndex ?? 0
-          const currentStep = steps[currentIndex]
-
-          if (isSkippableStep(currentStep)) {
-            await skipForward(currentIndex)
-            return
-          }
-
           if (currentStep && isInteractiveStep(currentStep) && currentStep.element) {
             const targetElement = typeof currentStep.element === 'string'
               ? document.querySelector(currentStep.element) as HTMLElement
@@ -211,12 +273,10 @@ export function useOnboardingTour(options: OnboardingOptions) {
         }
       },
       onPrevClick: () => {
-        driverInstance?.movePrevious()
+        goPrevious()
       },
       onCloseClick: () => {
-        markAsSeen()
-        driverInstance?.destroy()
-        onboardingStore.setDriverInstance(null)
+        finishTour()
       },
 
       // 渲染时重组 Footer 布局
@@ -340,11 +400,43 @@ export function useOnboardingTour(options: OnboardingOptions) {
         cleanupClickListener()
         cleanupResizeObserver()
 
+        const highlightedIndex = driverInstance?.getActiveIndex()
+        if (highlightedIndex !== undefined) {
+          if (highlightedIndex > lastHighlightedIndex) navigationDirection = 1
+          else if (highlightedIndex < lastHighlightedIndex) navigationDirection = -1
+          lastHighlightedIndex = highlightedIndex
+        }
+
+        // driver records the active step right after this handler starts; after an
+        // await, continue only while the tour is alive and still showing this step.
+        const isStillOnStep = () => !!driverInstance?.isActive() && driverInstance.getActiveStep() === step
+
         // 尝试等待元素
         if (!element && step.element && typeof step.element === 'string') {
-           const exists = await ensureElement(step.element, 8000)
+           // Info steps explain a form field. Inside an open dialog, a field that does not
+           // render quickly is absent for the current form state (e.g. Anthropic-only
+           // options for another platform): skip it in the direction of travel instead
+           // of showing a centred popover after the full timeout.
+           const isFieldStep = !isInteractiveStep(step)
+           let exists = await ensureElement(
+             step.element,
+             isFieldStep ? TIMING.FIELD_WAIT_MS : TIMING.ELEMENT_TIMEOUT_MS
+           )
+           if (!isStillOnStep()) return
+           if (!exists && isFieldStep) {
+             const activeIndex = driverInstance?.getActiveIndex()
+             const target = activeIndex !== undefined && document.querySelector('[role="dialog"]')
+               ? findStepOnScreen(activeIndex, navigationDirection)
+               : undefined
+             if (target !== undefined) {
+               driverInstance?.moveTo(target)
+               return
+             }
+             exists = await ensureElement(step.element, TIMING.ELEMENT_TIMEOUT_MS - TIMING.FIELD_WAIT_MS)
+             if (!isStillOnStep()) return
+           }
            if (!exists) {
-             console.warn(`Tour element not found after 8s: ${step.element}`)
+             console.warn(`Tour element not found after ${TIMING.ELEMENT_TIMEOUT_MS}ms: ${step.element}`)
              return
            }
            // The step was shown before its page finished rendering (e.g. right after
@@ -352,11 +444,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
            // now covers the real target. Re-run the step so the element is
            // highlighted and clickable; this handler runs again with the element.
            const activeIndex = driverInstance?.getActiveIndex()
-           if (driverInstance && activeIndex !== undefined && driverInstance.getActiveStep() === step) {
-             driverInstance.moveTo(activeIndex)
-             return
-           }
-           element = document.querySelector(step.element) as HTMLElement
+           if (activeIndex !== undefined) driverInstance?.moveTo(activeIndex)
+           return
         }
 
         // Container steps (e.g. the account authorization dialog) are advanced by
@@ -495,87 +584,59 @@ export function useOnboardingTour(options: OnboardingOptions) {
     globalKeyboardHandler = (e: KeyboardEvent) => {
       if (!driverInstance?.isActive()) return
 
+      // driver's own ESC does nothing with allowClose: false; ESC ends the tour here.
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
-        markAsSeen()
-        driverInstance.destroy()
-        onboardingStore.setDriverInstance(null)
+        finishTour()
         return
       }
 
-      if (e.key === 'ArrowRight') {
-        const target = e.target as HTMLElement
-        // 允许在输入框中使用方向键
-        if (['INPUT', 'TEXTAREA'].includes(target?.tagName)) {
-           return
-        }
+      if (!['ArrowRight', 'ArrowLeft', 'Enter'].includes(e.key)) return
 
+      // 允许在输入框中使用方向键和回车
+      const target = e.target instanceof HTMLElement ? e.target : null
+      if (isEditableTarget(target)) return
+
+      if (e.key === 'ArrowLeft') {
         e.preventDefault()
         e.stopPropagation()
-
-        // 对于交互式步骤，箭头键应该触发交互而非跳过
-        const currentIndex = driverInstance!.getActiveIndex() ?? 0
-        const currentStep = steps[currentIndex]
-
-        if (currentStep && isInteractiveStep(currentStep) && currentStep.element) {
-          const targetElement = typeof currentStep.element === 'string'
-            ? document.querySelector(currentStep.element) as HTMLElement
-            : currentStep.element as HTMLElement
-
-          if (targetElement) {
-            // 对于非输入类元素，提示用户需要点击或按Enter
-            const isClickable = !['INPUT', 'TEXTAREA', 'SELECT'].includes(targetElement.tagName)
-            if (isClickable) {
-              // 不自动触发，只是停留提示
-              return
-            }
-          }
-        }
-
-        // 非交互式步骤才允许箭头键翻页
-        driverInstance!.moveNext()
+        goPrevious()
+        return
       }
-      else if (e.key === 'Enter') {
-        const target = e.target as HTMLElement
-        // 允许在输入框中使用回车
-        if (['INPUT', 'TEXTAREA'].includes(target?.tagName)) {
-           return
-        }
 
-        e.preventDefault()
-        e.stopPropagation()
-
-        // 回车键处理交互式步骤
-        const currentIndex = driverInstance!.getActiveIndex() ?? 0
-        const currentStep = steps[currentIndex]
-
-        if (currentStep && isInteractiveStep(currentStep) && currentStep.element) {
-          const targetElement = typeof currentStep.element === 'string'
-            ? document.querySelector(currentStep.element) as HTMLElement
-            : currentStep.element as HTMLElement
-
-          if (targetElement) {
-            const isClickable = !['INPUT', 'TEXTAREA', 'SELECT'].includes(targetElement.tagName)
-            if (isClickable) {
-              targetElement.click()
-              return
-            }
-          }
-        }
-        driverInstance!.moveNext()
+      // Enter on a control (the popover's own Skip/Next buttons, the buttons inside
+      // the highlighted dialog, the highlighted target itself) is the browser's to handle.
+      if (e.key === 'Enter' && target && (
+        target.closest('.driver-popover') !== null ||
+        driverInstance.getActiveElement()?.contains(target) ||
+        isInteractiveControl(target)
+      )) {
+        return
       }
-      else if (e.key === 'ArrowLeft') {
-        const target = e.target as HTMLElement
-        // 允许在输入框中使用方向键
-        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) || target?.isContentEditable) {
-           return
-        }
 
-        e.preventDefault()
-        e.stopPropagation()
-        driverInstance.movePrevious()
+      const currentIndex = driverInstance.getActiveIndex() ?? 0
+      const currentStep = steps[currentIndex]
+
+      // 交互式步骤：方向键不翻页；回车触发目标（需要真实保存的步骤除外，绝不代为提交）
+      if (currentStep && isInteractiveStep(currentStep)) {
+        if (e.key !== 'Enter' || isSkippableStep(currentStep) || !currentStep.element) return
+        const targetElement = typeof currentStep.element === 'string'
+          ? queryTarget(currentStep.element)
+          : currentStep.element as HTMLElement
+        if (targetElement && !['INPUT', 'TEXTAREA', 'SELECT'].includes(targetElement.tagName)) {
+          e.preventDefault()
+          e.stopPropagation()
+          targetElement.click()
+        }
+        return
       }
+
+      // 非交互式步骤才允许翻页
+      e.preventDefault()
+      e.stopPropagation()
+      if (currentIndex === lastIndex) finishTour()
+      else driverInstance.moveNext()
     }
 
     document.addEventListener('keydown', globalKeyboardHandler, { capture: true })
@@ -586,6 +647,14 @@ export function useOnboardingTour(options: OnboardingOptions) {
     if (!driverInstance?.isActive()) return
     if (delay > 0) {
       await new Promise(resolve => setTimeout(resolve, delay))
+      if (!driverInstance?.isActive()) return
+    }
+    // Finishing from the last step (e.g. the admin tour's key submit) completes the tour
+    if (driverInstance.isLastStep()) {
+      markAsSeen()
+      driverInstance.destroy()
+      onboardingStore.setDriverInstance(null)
+      return
     }
     driverInstance.moveNext()
   }
