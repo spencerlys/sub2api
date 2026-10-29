@@ -123,6 +123,18 @@ func ownerBodyReferenceIDs(body []byte) (map[string][]int64, int, string) {
 	if err := json.Unmarshal(body, &fields); err != nil || fields == nil {
 		return nil, http.StatusBadRequest, "请求格式无效"
 	}
+	// encoding/json 绑定结构体时字段名大小写不敏感（含 Unicode 折叠，如 "group_idſ"），
+	// 而下方按精确键名取值；非规范写法的引用字段一律拒绝，否则可绕过归属校验。
+	for key := range fields {
+		for ref := range ownerBodyReferences {
+			if key != ref && strings.EqualFold(key, ref) {
+				return nil, http.StatusBadRequest, "请求字段名无效"
+			}
+		}
+		if key != "model_routing" && strings.EqualFold(key, "model_routing") {
+			return nil, http.StatusBadRequest, "请求字段名无效"
+		}
+	}
 	refs := map[string][]int64{}
 	add := func(kind string, id int64) {
 		if id > 0 {

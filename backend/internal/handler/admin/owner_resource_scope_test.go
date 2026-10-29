@@ -4,6 +4,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -131,6 +132,14 @@ func TestOwnerResourceScopeRejectsForeignResources(t *testing.T) {
 		{"GET", "/api/v1/admin/usage?api_key_id=5", ``, http.StatusForbidden},
 		// 未登记归属前缀的 :id 路由一律拒绝。
 		{"POST", "/api/v1/admin/scheduled-test-plans/1", `{}`, http.StatusForbidden},
+		// encoding/json 字段名大小写不敏感：非规范写法的引用字段必须拒绝，不能绕过校验。
+		{"POST", "/api/v1/admin/accounts", `{"GROUP_IDS":[3]}`, http.StatusBadRequest},
+		{"POST", "/api/v1/admin/accounts", `{"Proxy_Id":3}`, http.StatusBadRequest},
+		{"POST", "/api/v1/admin/accounts", `{"proxy_id":1,"PROXY_ID":3}`, http.StatusBadRequest},
+		{"POST", "/api/v1/admin/accounts", `{"group_idſ":[3]}`, http.StatusBadRequest},
+		{"PUT", "/api/v1/admin/accounts/1", `{"Group_IDs":[3]}`, http.StatusBadRequest},
+		{"POST", "/api/v1/admin/accounts/today-stats/batch", `{"Account_IDs":[3]}`, http.StatusBadRequest},
+		{"POST", "/api/v1/admin/groups", `{"name":"g","Model_Routing":{"claude-*":[3]}}`, http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		require.Equal(t, tc.want, ownerScopeCall(router, tc.method, tc.path, tc.body), tc.method+" "+tc.path+" "+tc.body)
@@ -203,4 +212,16 @@ func TestOwnerUsageResponseHidesUserIdentity(t *testing.T) {
 	require.Equal(t, int64(1), out[0]["account_id"])
 	require.Equal(t, 2.0, out[0]["total_cost"])
 	require.Equal(t, 3.0, out[0]["actual_cost"])
+}
+
+// 守护拒绝非规范键名的前提：处理器绑定用的 encoding/json 确实按大小写不敏感
+// （含 Unicode 折叠）匹配字段，忽略这些键会放过越权引用。
+func TestOwnerScopeJSONFieldMatchingIsCaseInsensitive(t *testing.T) {
+	var req CreateAccountRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"GROUP_IDS":[3],"Proxy_Id":3}`), &req))
+	require.Equal(t, []int64{3}, req.GroupIDs)
+	require.NotNil(t, req.ProxyID)
+	req = CreateAccountRequest{}
+	require.NoError(t, json.Unmarshal([]byte(`{"group_idſ":[4]}`), &req))
+	require.Equal(t, []int64{4}, req.GroupIDs)
 }
