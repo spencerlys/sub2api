@@ -1341,6 +1341,28 @@ func TestPricingService_AntigravityClaude55TiersUseBaseModelPricing(t *testing.T
 	require.Same(t, claudeSonnet55FallbackPricing, sparse.GetModelPricing("claude-sonnet-5-5-low"))
 }
 
+// 内置兜底价必须与官方价目一致（https://platform.claude.com/docs/en/about-claude/pricing）：
+// Opus 5.5 / Sonnet 5.5 缓存命中为 0.05x 输入价，Haiku 5.5 为标准 0.1x。
+func TestClaude55FallbackPricingMatchesOfficialRates(t *testing.T) {
+	cases := []struct {
+		name                         string
+		pricing                      *LiteLLMModelPricing
+		input, write5m, write1h, hit float64
+		output                       float64
+	}{
+		{"opus-5-5", claudeOpus55FallbackPricing, 4e-6, 5e-6, 8e-6, 0.2e-6, 20e-6},
+		{"sonnet-5-5", claudeSonnet55FallbackPricing, 2e-6, 2.5e-6, 4e-6, 0.1e-6, 10e-6},
+		{"haiku-5-5", claudeHaiku55FallbackPricing, 0.1e-6, 0.125e-6, 0.2e-6, 0.01e-6, 0.5e-6},
+	}
+	for _, tc := range cases {
+		require.InDelta(t, tc.input, tc.pricing.InputCostPerToken, 1e-15, tc.name)
+		require.InDelta(t, tc.write5m, tc.pricing.CacheCreationInputTokenCost, 1e-15, tc.name)
+		require.InDelta(t, tc.write1h, tc.pricing.CacheCreationInputTokenCostAbove1hr, 1e-15, tc.name)
+		require.InDelta(t, tc.hit, tc.pricing.CacheReadInputTokenCost, 1e-15, tc.name)
+		require.InDelta(t, tc.output, tc.pricing.OutputCostPerToken, 1e-15, tc.name)
+	}
+}
+
 func TestBillingService_AntigravityClaude55TierFallbacksUseBaseRates(t *testing.T) {
 	svc := NewBillingService(&config.Config{}, nil)
 	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000}
