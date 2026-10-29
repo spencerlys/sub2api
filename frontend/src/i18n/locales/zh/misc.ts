@@ -270,6 +270,163 @@ export default {
           '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">点击创建后，系统会生成完整的 API Key。</p><div style="padding: 8px 12px; background: #fee2e2; border-left: 3px solid #ef4444; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ 重要提醒：</b><ul style="margin: 8px 0 0 16px;"><li>密钥只显示一次，请立即复制</li><li>丢失后需要重新生成</li><li>妥善保管，不要泄露给他人</li></ul></div><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>🚀 下一步：</b><ul style="margin: 8px 0 0 16px;"><li>复制生成的 sk-xxx 密钥</li><li>在支持 OpenAI 接口的客户端中使用</li><li>开始体验 AI 服务！</li></ul></div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">👉 点击"创建"按钮</p></div>'
       }
     },
+    // AI account owner tour steps
+    owner: {
+      welcome: {
+        title: '欢迎，AI 账号所有者',
+        description: '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">作为账号所有者，您可以把自己的 Claude 账号接入本网关并自行管理。</p><p style="margin-bottom: 12px;"><b>您可以：</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li><b>代理</b> - 为每个账号配置独立代理</li><li><b>分组</b> - 把账号放进自己的分组</li><li><b>账号</b> - 添加并授权您的 Claude 账号</li><li><b>用量</b> - 查看每个账号的用量与计费</li></ul><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>可见范围：</b> 您只能看到自己的账号、代理、分组及其用量；看不到其他用户及其 API 密钥，也看不到其他所有者的资源。</div><p style="color: #10b981; font-weight: 600;">接下来按 代理 → 分组 → 账号 的顺序完成配置 →</p></div>',
+        nextBtn: '开始'
+      },
+      proxyManage: {
+        title: '第一步：代理',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">每个账号都应通过自己的代理访问上游，所以先为第一个账号添加代理。</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>建议：</b> 一个账号一个代理，账号之间互不影响。</div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击左侧菜单的「IP管理」</p></div>'
+      },
+      createProxy: {
+        title: '添加代理',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">添加第一个账号要使用的代理。</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击「添加代理」按钮</p></div>'
+      },
+      proxyName: {
+        title: '1. 代理名称',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">起一个能看出对应哪个账号的名称。</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>示例：</b> 「claude-main-proxy」</div><p style="font-size: 13px; color: #6b7280;">填写完成后点击「下一步」</p></div>',
+        nextBtn: '下一步'
+      },
+      proxyProtocol: {
+        title: '2. 协议',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">选择代理支持的协议。</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>推荐：</b><ul style="margin: 8px 0 0 16px;"><li><b>SOCKS5H (远程 DNS)</b> - 域名在代理端解析</li><li><b>HTTP</b> - 兼容性最好</li></ul></div></div>',
+        nextBtn: '下一步'
+      },
+      proxyAddress: {
+        title: '3. 主机与端口',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">填写代理服务器的地址和端口。如代理需要认证，请在下方填写「用户名（可选）」和「密码（可选）」。</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>必须是公网地址：</b> 内网、回环、链路本地或无法解析的主机会被拒绝。</div></div>',
+        nextBtn: '下一步'
+      },
+      proxyFallback: {
+        title: '4. 到期回退',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">选择代理超过「有效期」后，使用它的账号如何处理。</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>推荐：</b><ul style="margin: 8px 0 0 16px;"><li><b>不回退</b> - 账号继续使用该代理，请及时续期</li><li><b>指定备用代理</b> - 账号切换到您的另一个代理</li></ul></div><div style="padding: 8px 12px; background: #fee2e2; border-left: 3px solid #ef4444; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>不要选择「回退直连」：</b> 那样账号会不经代理直接访问上游。您的账号应始终通过代理访问。</div></div>',
+        nextBtn: '下一步'
+      },
+      proxySubmit: {
+        title: '保存代理',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">确认信息后创建代理。</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>下一步：</b> 代理创建后，我们来创建分组。</div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击「创建」按钮</p></div>'
+      },
+      groupManage: {
+        title: '第二步：分组',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;"><b>代理已创建。</b>接下来创建一个分组来放置您的账号。</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>关于所有者分组：</b><ul style="margin: 8px 0 0 16px;"><li>发往该分组的请求由组内账号处理</li><li>您的分组始终是专属分组</li><li>哪些用户可以使用您的分组由管理员分配</li></ul></div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击左侧菜单的「分组管理」</p></div>'
+      },
+      createGroup: {
+        title: '创建分组',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">创建您的账号所属的分组。</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击「创建分组」按钮</p></div>'
+      },
+      groupName: {
+        title: '1. 分组名称',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">为分组起一个易于识别的名称。</p><p style="font-size: 13px; color: #6b7280;">填写完成后点击「下一步」</p></div>',
+        nextBtn: '下一步'
+      },
+      groupPlatform: {
+        title: '2. 平台',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Claude 账号请选择 <b>Anthropic</b>。</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>注意：</b> 分组创建后平台不可修改。</div></div>',
+        nextBtn: '下一步'
+      },
+      groupSubmit: {
+        title: '保存分组',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">创建分组。</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>专属分组：</b> 只有管理员分配的用户可以使用。账号准备好后，请联系管理员分配用户。</div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击「创建」按钮</p></div>'
+      },
+      accountManage: {
+        title: '第三步：账号',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;"><b>分组已创建。</b>现在添加您的 Claude 账号，并使用刚才创建的代理和分组。</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击左侧菜单的「账号管理」</p></div>'
+      },
+      createAccount: {
+        title: '添加账号',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">开始添加第一个 Claude 账号。</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击「添加账号」按钮</p></div>'
+      },
+      accountName: {
+        title: '1. 账号名称',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">设置一个易于识别的名称，例如与代理名称对应。</p><p style="font-size: 13px; color: #6b7280;">填写完成后点击「下一步」</p></div>',
+        nextBtn: '下一步'
+      },
+      accountPlatform: {
+        title: '2. 平台',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">选择 <b>Anthropic</b>。</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>注意：</b> 平台需要与您的分组一致。</div></div>',
+        nextBtn: '下一步'
+      },
+      accountType: {
+        title: '3. 账号类型',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Claude 订阅账号请选择 <b>Claude Code</b>（OAuth / Setup Token）。</p></div>',
+        nextBtn: '下一步'
+      },
+      accountAddMethod: {
+        title: '4. 添加方式',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">保持选择 <b>OAuth</b>。授权将在对话框的下一步完成。</p></div>',
+        nextBtn: '下一步'
+      },
+      accountWarmup: {
+        title: '5. 拦截预热请求',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">标题生成等预热请求将返回 mock 响应，不消耗上游额度。</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>推荐：</b> 开启。</div></div>',
+        nextBtn: '下一步'
+      },
+      accountTlsFingerprint: {
+        title: '6. TLS 指纹模拟',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">让到上游的连接呈现与客户端一致的 TLS 指纹。</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>推荐：</b> 开启，并保持默认配置。</div></div>',
+        nextBtn: '下一步'
+      },
+      accountCustomBaseUrl: {
+        title: '7. 自定义转发地址',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">把该账号的请求转发到其他中转地址，而不是官方上游。</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>保持关闭：</b> 请求应通过您的代理直达官方上游。</div></div>',
+        nextBtn: '下一步'
+      },
+      accountProxy: {
+        title: '8. 代理（必选）',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">选择为该账号创建的代理。</p><div style="padding: 8px 12px; background: #fee2e2; border-left: 3px solid #ef4444; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>重要：</b> 不要保持「无代理」。每个账号都应通过自己的代理访问。</div></div>',
+        nextBtn: '下一步'
+      },
+      accountConcurrency: {
+        title: '9. 并发数',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">该账号同时处理的最大请求数。</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>推荐：</b> 每个账号 3-5。</div></div>',
+        nextBtn: '下一步'
+      },
+      accountPriority: {
+        title: '10. 优先级',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">优先级越小的账号优先使用。</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>建议：</b> 同一账号池内的所有账号设置相同的值，负载会在它们之间均匀分配。</div></div>',
+        nextBtn: '下一步'
+      },
+      accountGroups: {
+        title: '11. 分组',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">选择<b>您的分组</b>，账号才能处理请求。</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>注意：</b> 不在任何分组中的账号不会被使用。</div></div>',
+        nextBtn: '下一步'
+      },
+      accountSubmit: {
+        title: '进入授权',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">确认设置后进入授权步骤。</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击「下一步」按钮</p></div>'
+      },
+      accountAuthorize: {
+        title: '授权账号',
+        description: '<div style="line-height: 1.7;"><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>步骤：</b><ul style="margin: 8px 0 0 16px;"><li>点击「生成授权 URL」</li><li>在<b>使用与该账号相同代理</b>的浏览器中打开该 URL，并登录 Claude 账号</li><li>把「授权码」粘贴回这里</li><li>点击「完成授权」</li></ul></div><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>为什么要用同一代理：</b> 这样账号登录和处理请求都来自同一地址。</div><p style="font-size: 13px; color: #6b7280;">账号创建成功后引导将继续。</p></div>'
+      },
+      accountTest: {
+        title: '测试连接',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">账号已出现在列表中。投入使用前先确认它能正常工作。</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>操作：</b> 在账号所在行点击「更多」，选择「测试连接」。同一菜单中的「查看统计」可查看该账号的用量。</div><p style="font-size: 13px; color: #6b7280;">后续每个账号都按 代理 → 账号 重复即可。</p></div>',
+        nextBtn: '下一步'
+      },
+      usageManage: {
+        title: '第四步：用量',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">查看您的账号的使用与计费情况。</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ 点击左侧菜单的「使用记录」</p></div>'
+      },
+      usageOverview: {
+        title: '用量概览',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">所选时间范围内<b>仅您的账号</b>的汇总：请求数、Token、费用和平均耗时。</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>费用：</b> 「总消费」是向用户收取的费用；橙色的「成本」是计入您账号的费用。</div></div>',
+        nextBtn: '下一步'
+      },
+      usageBilling: {
+        title: '逐条计费',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">每一行是您的某个账号处理的一次请求。</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>将鼠标悬停在费用列的信息图标上：</b><ul style="margin: 8px 0 0 16px;"><li><b>用户扣费</b> - 向用户收取的费用</li><li><b>账号计费</b> - 计入您账号的费用（账号倍率由管理员设置）</li></ul></div><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>按账号查看：</b> 在此按账号筛选，或在账号管理页使用「更多」→「查看统计」。</div></div>',
+        nextBtn: '下一步'
+      },
+      finish: {
+        title: '配置完成',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">您已完成代理、分组和账号的配置。</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>在这个用户菜单中：</b><ul style="margin: 8px 0 0 16px;"><li><b>重新查看新手引导</b> - 再次运行本引导</li><li><b>账号所有者指南</b> - 详细的所有者指南（如果管理员已提供）</li></ul></div></div>',
+        nextBtn: '完成'
+      }
+    },
     // User tour steps
     user: {
       welcome: {

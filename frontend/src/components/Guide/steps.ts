@@ -307,3 +307,149 @@ export const getUserSteps = (t: (key: string) => string): DriveStep[] => [
     }
   }
 ]
+
+/**
+ * Selectors shared between the owner tour and the views that advance it after
+ * an async action succeeds (the tour cannot observe API results by itself).
+ */
+export const OWNER_TOUR_SELECTORS = {
+  sidebarProxies: '[data-tour="sidebar-proxies"]',
+  proxiesCreate: '[data-tour="proxies-create-btn"]',
+  proxySubmit: '[data-tour="proxy-form-submit"]',
+  sidebarGroups: '#sidebar-group-manage',
+  groupSubmit: '[data-tour="group-form-submit"]',
+  sidebarAccounts: '#sidebar-channel-manage',
+  accountsCreate: '[data-tour="accounts-create-btn"]',
+  accountSubmit: '[data-tour="account-form-submit"]',
+  // The whole create-account dialog panel while it shows the authorization step,
+  // so the owner can still reach the dialog footer ("Complete Authorization").
+  accountAuthorize: '.modal-content:has([data-tour="account-oauth-flow"])',
+  accountRowMore: '[data-tour="account-row-more"]',
+  sidebarUsage: '[data-tour="sidebar-usage"]',
+  userMenu: '[data-tour="header-user-menu"]'
+} as const
+
+/**
+ * Steps whose target is a container the user works inside (not a single
+ * button). The engine must not auto-advance on the first click inside it;
+ * business code calls onboardingStore.nextStep() once the action succeeds.
+ */
+const MANUAL_ADVANCE_SELECTORS: ReadonlySet<string> = new Set([OWNER_TOUR_SELECTORS.accountAuthorize])
+
+export const isManualAdvanceStep = (step: DriveStep | undefined): boolean => {
+  return typeof step?.element === 'string' && MANUAL_ADVANCE_SELECTORS.has(step.element)
+}
+
+type StepSide = 'top' | 'right' | 'bottom' | 'left'
+type StepAlign = 'start' | 'center' | 'end'
+
+/**
+ * AI 账号所有者（role=owner）引导流程：
+ * 代理 → 分组 → 账号（含授权）→ 测试连接 → 用量 → 结束。
+ * 只引用所有者可见的页面与控件；交互方式与管理员引导一致：
+ * - 只有 close 按钮的步骤需要用户实际点击目标（或由业务代码在成功后推进）
+ * - next/previous 步骤为表单字段说明
+ */
+export const getOwnerSteps = (t: (key: string) => string): DriveStep[] => {
+  const click = (element: string, key: string, side: StepSide, align: StepAlign): DriveStep => ({
+    element,
+    popover: {
+      title: t(`onboarding.owner.${key}.title`),
+      description: t(`onboarding.owner.${key}.description`),
+      side,
+      align,
+      showButtons: ['close']
+    }
+  })
+  const info = (element: string, key: string, side: StepSide, align: StepAlign): DriveStep => ({
+    element,
+    popover: {
+      title: t(`onboarding.owner.${key}.title`),
+      description: t(`onboarding.owner.${key}.description`),
+      side,
+      align,
+      showButtons: ['next', 'previous']
+    }
+  })
+  const S = OWNER_TOUR_SELECTORS
+
+  return [
+    {
+      popover: {
+        title: t('onboarding.owner.welcome.title'),
+        description: t('onboarding.owner.welcome.description'),
+        align: 'center',
+        nextBtnText: t('onboarding.owner.welcome.nextBtn')
+      }
+    },
+
+    // ========== 第一部分：代理 ==========
+    click(S.sidebarProxies, 'proxyManage', 'right', 'center'),
+    click(S.proxiesCreate, 'createProxy', 'bottom', 'end'),
+    info('[data-tour="proxy-form-name"]', 'proxyName', 'right', 'start'),
+    info('[data-tour="proxy-form-protocol"]', 'proxyProtocol', 'right', 'start'),
+    info('[data-tour="proxy-form-address"]', 'proxyAddress', 'right', 'start'),
+    info('[data-tour="proxy-form-fallback"]', 'proxyFallback', 'right', 'start'),
+    click(S.proxySubmit, 'proxySubmit', 'left', 'center'),
+
+    // ========== 第二部分：分组 ==========
+    click(S.sidebarGroups, 'groupManage', 'right', 'center'),
+    click('[data-tour="groups-create-btn"]', 'createGroup', 'bottom', 'end'),
+    info('[data-tour="group-form-name"]', 'groupName', 'right', 'start'),
+    info('[data-tour="group-form-platform"]', 'groupPlatform', 'right', 'start'),
+    click(S.groupSubmit, 'groupSubmit', 'left', 'center'),
+
+    // ========== 第三部分：账号 ==========
+    click(S.sidebarAccounts, 'accountManage', 'right', 'center'),
+    click(S.accountsCreate, 'createAccount', 'bottom', 'end'),
+    info('[data-tour="account-form-name"]', 'accountName', 'right', 'start'),
+    info('[data-tour="account-form-platform"]', 'accountPlatform', 'right', 'start'),
+    info('[data-tour="account-form-type"]', 'accountType', 'right', 'start'),
+    info('[data-tour="account-form-add-method"]', 'accountAddMethod', 'right', 'start'),
+    info('[data-tour="account-form-intercept-warmup"]', 'accountWarmup', 'top', 'start'),
+    info('[data-tour="account-form-tls-fingerprint"]', 'accountTlsFingerprint', 'top', 'start'),
+    info('[data-tour="account-form-custom-base-url"]', 'accountCustomBaseUrl', 'top', 'start'),
+    info('[data-tour="account-form-proxy"]', 'accountProxy', 'top', 'start'),
+    info('[data-tour="account-form-concurrency"]', 'accountConcurrency', 'top', 'start'),
+    info('[data-tour="account-form-priority"]', 'accountPriority', 'top', 'start'),
+    info('[data-tour="account-form-groups"]', 'accountGroups', 'top', 'center'),
+    click(S.accountSubmit, 'accountSubmit', 'left', 'center'),
+    click(S.accountAuthorize, 'accountAuthorize', 'left', 'start'),
+    info(S.accountRowMore, 'accountTest', 'left', 'center'),
+
+    // ========== 第四部分：用量 ==========
+    click(S.sidebarUsage, 'usageManage', 'right', 'center'),
+    info('[data-tour="usage-stats-cards"]', 'usageOverview', 'bottom', 'start'),
+    info('[data-tour="usage-table"]', 'usageBilling', 'top', 'start'),
+
+    // ========== 结束 ==========
+    info(S.userMenu, 'finish', 'bottom', 'end')
+  ]
+}
+
+export type TourRole = 'admin' | 'owner' | 'user'
+
+/** Map a user role to its tour. Owners get their own tour, never the admin or user one. */
+export const resolveTourRole = (role: string | null | undefined): TourRole => {
+  if (role === 'admin') return 'admin'
+  if (role === 'owner') return 'owner'
+  return 'user'
+}
+
+/** Roles whose tour starts automatically on first visit (standard mode only). */
+export const shouldAutoStartTour = (role: TourRole): boolean => role === 'admin' || role === 'owner'
+
+export const getTourSteps = (
+  role: TourRole,
+  t: (key: string) => string,
+  isSimpleMode = false
+): DriveStep[] => {
+  switch (role) {
+    case 'admin':
+      return getAdminSteps(t, isSimpleMode)
+    case 'owner':
+      return getOwnerSteps(t)
+    default:
+      return getUserSteps(t)
+  }
+}

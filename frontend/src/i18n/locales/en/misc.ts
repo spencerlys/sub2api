@@ -252,6 +252,163 @@ export default {
         description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">System will generate a complete API Key after clicking create.</p><div style="padding: 8px 12px; background: #fee2e2; border-left: 3px solid #ef4444; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>⚠️ Important Reminder:</b><ul style="margin: 8px 0 0 16px;"><li>Key is only shown once, copy immediately</li><li>Need to regenerate if lost</li><li>Keep it safe, don\'t share with others</li></ul></div><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>🚀 Next Steps:</b><ul style="margin: 8px 0 0 16px;"><li>Copy the generated sk-xxx key</li><li>Use in any OpenAI-compatible client</li><li>Start experiencing AI services!</li></ul></div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">👉 Click "Create" button</p></div>'
       }
     },
+    // AI account owner tour steps
+    owner: {
+      welcome: {
+        title: 'Welcome, AI Account Owner',
+        description: '<div style="line-height: 1.8;"><p style="margin-bottom: 16px;">As an account owner you bring your own Claude accounts to this gateway and manage them yourself.</p><p style="margin-bottom: 12px;"><b>What you can do:</b></p><ul style="margin-left: 20px; margin-bottom: 16px;"><li><b>Proxies</b> - give each account its own proxy</li><li><b>Groups</b> - organise your accounts in your own group</li><li><b>Accounts</b> - add and authorize your Claude accounts</li><li><b>Usage</b> - see per-account usage and billing</li></ul><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Scope:</b> you only see your own accounts, proxies, groups and their usage. Other users, their API keys and other owners\' resources are not visible to you.</div><p style="color: #10b981; font-weight: 600;">Let\'s set up proxy, group and account in that order →</p></div>',
+        nextBtn: 'Start'
+      },
+      proxyManage: {
+        title: 'Step 1: Proxies',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Every account should reach the upstream through its own proxy, so start by adding the proxy for your first account.</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Tip:</b> one proxy per account keeps accounts isolated from each other.</div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Proxies" in the left sidebar</p></div>'
+      },
+      createProxy: {
+        title: 'Create a Proxy',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Add the proxy your first account will use.</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Create Proxy"</p></div>'
+      },
+      proxyName: {
+        title: '1. Proxy Name',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Use a name that tells you which account the proxy belongs to.</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Example:</b> "claude-main-proxy"</div><p style="font-size: 13px; color: #6b7280;">Click "Next" when done</p></div>',
+        nextBtn: 'Next'
+      },
+      proxyProtocol: {
+        title: '2. Protocol',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Select the protocol your proxy speaks.</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Recommended:</b><ul style="margin: 8px 0 0 16px;"><li><b>SOCKS5H (Remote DNS)</b> - domain names are resolved on the proxy side</li><li><b>HTTP</b> - widely supported</li></ul></div></div>',
+        nextBtn: 'Next'
+      },
+      proxyAddress: {
+        title: '3. Host and Port',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Enter the proxy server address and port. If the proxy needs authentication, fill in "Username (Optional)" and "Password (Optional)" below.</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Public address only:</b> private, loopback, link-local or unresolvable hosts are rejected.</div></div>',
+        nextBtn: 'Next'
+      },
+      proxyFallback: {
+        title: '4. Expiry Fallback',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Choose what happens to accounts on this proxy once it passes its "Validity" date.</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Recommended:</b><ul style="margin: 8px 0 0 16px;"><li><b>No fallback</b> - accounts stay on this proxy; renew it in time</li><li><b>Backup proxy</b> - accounts switch to another proxy of yours</li></ul></div><div style="padding: 8px 12px; background: #fee2e2; border-left: 3px solid #ef4444; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Do not use "Direct connection":</b> accounts would then reach the upstream without any proxy. Your accounts are expected to always go through a proxy.</div></div>',
+        nextBtn: 'Next'
+      },
+      proxySubmit: {
+        title: 'Save Proxy',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Check the details and create the proxy.</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Next:</b> after the proxy is created we will create your group.</div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Create"</p></div>'
+      },
+      groupManage: {
+        title: 'Step 2: Groups',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;"><b>Proxy created.</b> Now create a group to hold your accounts.</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>About owner groups:</b><ul style="margin: 8px 0 0 16px;"><li>Requests sent to a group are served by the accounts in it</li><li>Your groups are always exclusive</li><li>The administrator decides which users may use your group</li></ul></div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Groups" in the left sidebar</p></div>'
+      },
+      createGroup: {
+        title: 'Create a Group',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Create the group your accounts will belong to.</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Create Group"</p></div>'
+      },
+      groupName: {
+        title: '1. Group Name',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Give the group an easy-to-identify name.</p><p style="font-size: 13px; color: #6b7280;">Click "Next" when done</p></div>',
+        nextBtn: 'Next'
+      },
+      groupPlatform: {
+        title: '2. Platform',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Choose <b>Anthropic</b> for Claude accounts.</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Note:</b> the platform cannot be changed after the group is created.</div></div>',
+        nextBtn: 'Next'
+      },
+      groupSubmit: {
+        title: 'Save Group',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Create the group.</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Exclusive group:</b> only users the administrator assigns can use it. Ask your administrator to assign users once your accounts are ready.</div><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Create"</p></div>'
+      },
+      accountManage: {
+        title: 'Step 3: Accounts',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;"><b>Group created.</b> Now add your Claude account, using the proxy and group you just created.</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Accounts" in the left sidebar</p></div>'
+      },
+      createAccount: {
+        title: 'Add an Account',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Start adding your first Claude account.</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Create Account"</p></div>'
+      },
+      accountName: {
+        title: '1. Account Name',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Set an easy-to-identify name, e.g. matching the proxy name.</p><p style="font-size: 13px; color: #6b7280;">Click "Next" when done</p></div>',
+        nextBtn: 'Next'
+      },
+      accountPlatform: {
+        title: '2. Platform',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Select <b>Anthropic</b>.</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Note:</b> the platform must match your group.</div></div>',
+        nextBtn: 'Next'
+      },
+      accountType: {
+        title: '3. Account Type',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Select <b>Claude Code</b> (OAuth / Setup Token) for a Claude subscription account.</p></div>',
+        nextBtn: 'Next'
+      },
+      accountAddMethod: {
+        title: '4. Add Method',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Keep <b>OAuth</b> selected. You will authorize the account in the next step of the dialog.</p></div>',
+        nextBtn: 'Next'
+      },
+      accountWarmup: {
+        title: '5. Intercept Warmup Requests',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Warmup requests such as title generation get a mock response instead of using upstream quota.</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Recommended:</b> turn it on.</div></div>',
+        nextBtn: 'Next'
+      },
+      accountTlsFingerprint: {
+        title: '6. TLS Fingerprint Simulation',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Makes upstream connections present a client-like TLS fingerprint.</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Recommended:</b> turn it on and keep the default profile.</div></div>',
+        nextBtn: 'Next'
+      },
+      accountCustomBaseUrl: {
+        title: '7. Custom Relay URL',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Sends this account\'s requests to another relay instead of the official upstream.</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Keep it off:</b> requests should go to the official upstream through your proxy.</div></div>',
+        nextBtn: 'Next'
+      },
+      accountProxy: {
+        title: '8. Proxy (required)',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Select the proxy you created for this account.</p><div style="padding: 8px 12px; background: #fee2e2; border-left: 3px solid #ef4444; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Important:</b> do not leave this on "No Proxy". Every account is expected to go through its own proxy.</div></div>',
+        nextBtn: 'Next'
+      },
+      accountConcurrency: {
+        title: '9. Concurrency',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">The maximum number of requests this account serves at the same time.</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Recommended:</b> 3-5 per account.</div></div>',
+        nextBtn: 'Next'
+      },
+      accountPriority: {
+        title: '10. Priority',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Lower value accounts are used first.</p><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Tip:</b> give all accounts in one pool the same value so load is spread evenly between them.</div></div>',
+        nextBtn: 'Next'
+      },
+      accountGroups: {
+        title: '11. Groups',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Select <b>your group</b> so the account can serve requests.</p><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Note:</b> an account that is not in any group is never used.</div></div>',
+        nextBtn: 'Next'
+      },
+      accountSubmit: {
+        title: 'Continue to Authorization',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Check the settings and continue to authorization.</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Next"</p></div>'
+      },
+      accountAuthorize: {
+        title: 'Authorize the Account',
+        description: '<div style="line-height: 1.7;"><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Steps:</b><ul style="margin: 8px 0 0 16px;"><li>Click "Generate Auth URL"</li><li>Open the URL in a browser that uses <b>the same proxy</b> as this account and sign in to the Claude account</li><li>Paste the "Authorization Code" back here</li><li>Click "Complete Authorization"</li></ul></div><div style="padding: 8px 12px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Why the same proxy:</b> the account then signs in and serves requests from the same address.</div><p style="font-size: 13px; color: #6b7280;">The tour continues once the account has been created.</p></div>'
+      },
+      accountTest: {
+        title: 'Test the Connection',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Your account is in the list. Check that it works before it serves traffic.</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>How:</b> in the account\'s row click "More" and choose "Test Connection". "View Stats" in the same menu shows this account\'s usage.</div><p style="font-size: 13px; color: #6b7280;">Repeat proxy → account for each further account.</p></div>',
+        nextBtn: 'Next'
+      },
+      usageManage: {
+        title: 'Step 4: Usage',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">See how your accounts are used and billed.</p><p style="margin-top: 12px; color: #10b981; font-weight: 600;">→ Click "Usage" in the left sidebar</p></div>'
+      },
+      usageOverview: {
+        title: 'Usage Overview',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Totals for <b>your accounts only</b> in the selected time range: requests, tokens, cost and average duration.</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Cost:</b> "Total Cost" is what users were charged; the orange "Cost" is billed to your accounts.</div></div>',
+        nextBtn: 'Next'
+      },
+      usageBilling: {
+        title: 'Per-request Billing',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">Each row is one request served by one of your accounts.</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Hover the info icon in the cost column:</b><ul style="margin: 8px 0 0 16px;"><li><b>User billed</b> - what the user was charged</li><li><b>Account billed</b> - what is billed to your account (account rate set by the administrator)</li></ul></div><div style="padding: 8px 12px; background: #f0fdf4; border-left: 3px solid #10b981; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>Per account:</b> filter by account here, or use "More" → "View Stats" on the Accounts page.</div></div>',
+        nextBtn: 'Next'
+      },
+      finish: {
+        title: 'All Set',
+        description: '<div style="line-height: 1.7;"><p style="margin-bottom: 12px;">You have set up a proxy, a group and an account.</p><div style="padding: 8px 12px; background: #eff6ff; border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; margin-bottom: 12px;"><b>In this user menu:</b><ul style="margin: 8px 0 0 16px;"><li><b>Restart Onboarding Tour</b> - run this tour again</li><li><b>Owner Guide</b> - the detailed owner guide, if your administrator has provided one</li></ul></div></div>',
+        nextBtn: 'Done'
+      }
+    },
     // User tour steps
     user: {
       welcome: {

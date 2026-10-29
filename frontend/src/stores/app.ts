@@ -32,6 +32,7 @@ export const useAppStore = defineStore('app', () => {
   const contactInfo = ref<string>('')
   const apiBaseUrl = ref<string>('')
   const docUrl = ref<string>('')
+  const ownerGuideUrl = ref<string>('')
   const cachedPublicSettings = ref<PublicSettings | null>(null)
   let publicSettingsRequest: Promise<PublicSettings | null> | null = null
 
@@ -300,6 +301,7 @@ export const useAppStore = defineStore('app', () => {
     contactInfo.value = config.contact_info || ''
     apiBaseUrl.value = config.api_base_url || ''
     docUrl.value = config.doc_url || ''
+    ownerGuideUrl.value = config.owner_guide_url || ''
     publicSettingsLoaded.value = true
   }
 
@@ -345,6 +347,7 @@ export const useAppStore = defineStore('app', () => {
         api_base_url: apiBaseUrl.value,
         contact_info: contactInfo.value,
         doc_url: docUrl.value,
+        owner_guide_url: ownerGuideUrl.value,
         home_content: '',
         compact_home_enabled: false,
         hide_ccs_import_button: false,
@@ -452,6 +455,7 @@ export const useAppStore = defineStore('app', () => {
     contactInfo,
     apiBaseUrl,
     docUrl,
+    ownerGuideUrl,
     cachedPublicSettings,
 
     // Version state

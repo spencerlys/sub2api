@@ -93,6 +93,13 @@
                       ? 'sidebar-wallet'
                       : undefined
               "
+              :data-tour="
+                item.path === '/admin/proxies'
+                  ? 'sidebar-proxies'
+                  : item.path === '/admin/usage'
+                    ? 'sidebar-usage'
+                    : undefined
+              "
               @click="handleMenuItemClick(item.path)"
             >
               <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>

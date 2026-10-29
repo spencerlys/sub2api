@@ -1473,7 +1473,7 @@
       </div>
 
       <!-- Add Method (only for Anthropic OAuth-based type) -->
-      <div v-if="form.platform === 'anthropic' && isOAuthFlow">
+      <div v-if="form.platform === 'anthropic' && isOAuthFlow" data-tour="account-form-add-method">
         <label class="input-label">{{ t('admin.accounts.addMethod') }}</label>
         <div class="mt-2 flex gap-4">
           <label class="flex cursor-pointer items-center">
@@ -2817,6 +2817,7 @@
       <div
         v-if="form.platform === 'anthropic' || form.platform === 'antigravity'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        data-tour="account-form-intercept-warmup"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -3088,7 +3089,7 @@
         </div>
 
         <!-- TLS Fingerprint -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-tour="account-form-tls-fingerprint">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.tlsFingerprint.label') }}</label>
@@ -3190,7 +3191,7 @@
         </div>
 
         <!-- Custom Base URL Relay -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-tour="account-form-custom-base-url">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.customBaseUrl.label') }}</label>
@@ -3225,7 +3226,7 @@
         </div>
       </div>
 
-      <div>
+      <div data-tour="account-form-proxy">
         <div class="mb-1 flex items-center gap-2">
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
@@ -3240,7 +3241,7 @@
       />
 
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div>
+        <div data-tour="account-form-concurrency">
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
           <input v-model.number="form.concurrency" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
@@ -3763,7 +3764,7 @@
     </form>
 
     <!-- Step 2: OAuth Authorization -->
-    <div v-else class="space-y-5">
+    <div v-else class="space-y-5" data-tour="account-oauth-flow">
       <OAuthAuthorizationFlow
         ref="oauthFlowRef"
         :add-method="form.platform === 'anthropic' ? addMethod : 'oauth'"
@@ -4162,6 +4163,8 @@ import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
+import { OWNER_TOUR_SELECTORS } from '@/components/Guide/steps'
+import { advanceTourIfCurrent } from '@/components/Guide/tourControl'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
@@ -5962,6 +5965,11 @@ const handleSubmit = async () => {
       return
     }
     step.value = 2
+    // Owner onboarding tour: move from "Next" to the authorization step explanation.
+    // Admin tour keeps its previous behaviour.
+    if (isOwner.value) {
+      advanceTourIfCurrent(OWNER_TOUR_SELECTORS.accountSubmit)
+    }
     return
   }
 

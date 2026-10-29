@@ -6644,6 +6644,25 @@
                 </p>
               </div>
 
+              <!-- Owner Guide URL -->
+              <div>
+                <label
+                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  {{ t("admin.settings.site.ownerGuideUrl") }}
+                </label>
+                <input
+                  v-model="form.owner_guide_url"
+                  type="url"
+                  class="input font-mono text-sm"
+                  data-testid="owner-guide-url-input"
+                  :placeholder="t('admin.settings.site.ownerGuideUrlPlaceholder')"
+                />
+                <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.site.ownerGuideUrlHint") }}
+                </p>
+              </div>
+
               <!-- Site Logo Upload -->
               <div>
                 <label
@@ -9773,6 +9792,7 @@ const form = reactive<SettingsForm>({
   api_base_url: "",
   contact_info: "",
   doc_url: "",
+  owner_guide_url: "",
   home_content: "",
   compact_home_enabled: false,
   backend_mode_enabled: false,
@@ -11412,6 +11432,7 @@ async function saveSettings() {
     // Optional URL fields: auto-clear invalid values so they don't cause backend 400 errors
     if (!isValidHttpUrl(form.frontend_url)) form.frontend_url = "";
     if (!isValidHttpUrl(form.doc_url)) form.doc_url = "";
+    if (!isValidHttpUrl(form.owner_guide_url)) form.owner_guide_url = "";
     syncWeChatConnectMode();
     const wechatStoredMode = deriveWeChatConnectStoredMode(
       form.wechat_connect_open_enabled,
@@ -11480,6 +11501,7 @@ async function saveSettings() {
       api_base_url: form.api_base_url,
       contact_info: form.contact_info,
       doc_url: form.doc_url,
+      owner_guide_url: form.owner_guide_url,
       home_content: form.home_content,
       compact_home_enabled: form.compact_home_enabled,
       backend_mode_enabled: form.backend_mode_enabled,

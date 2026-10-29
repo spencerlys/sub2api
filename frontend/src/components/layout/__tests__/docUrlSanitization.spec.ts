@@ -8,6 +8,7 @@ const dir = dirname(fileURLToPath(import.meta.url))
 const headerSource = readFileSync(resolve(dir, '../AppHeader.vue'), 'utf8')
 const homeViewSource = readFileSync(resolve(dir, '../../../views/HomeView.vue'), 'utf8')
 const keyUsageViewSource = readFileSync(resolve(dir, '../../../views/KeyUsageView.vue'), 'utf8')
+const settingsViewSource = readFileSync(resolve(dir, '../../../views/admin/SettingsView.vue'), 'utf8')
 
 describe('doc_url sanitization', () => {
   it('AppHeader imports sanitizeUrl', () => {
@@ -32,5 +33,16 @@ describe('doc_url sanitization', () => {
 
   it('KeyUsageView applies sanitizeUrl to docUrl', () => {
     expect(keyUsageViewSource).toContain('sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl')
+  })
+})
+
+describe('owner_guide_url sanitization', () => {
+  it('AppHeader applies sanitizeUrl to ownerGuideUrl and only for owners', () => {
+    expect(headerSource).toContain('authStore.isOwner ? sanitizeUrl(appStore.ownerGuideUrl)')
+  })
+
+  it('SettingsView clears an invalid owner_guide_url before saving, like doc_url', () => {
+    expect(settingsViewSource).toContain('if (!isValidHttpUrl(form.owner_guide_url)) form.owner_guide_url = "";')
+    expect(settingsViewSource).toContain('owner_guide_url: form.owner_guide_url,')
   })
 })

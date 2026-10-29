@@ -81,7 +81,7 @@
             <button v-if="!isOwner" @click="showExportDataDialog = true" class="btn btn-secondary">
               {{ selectedCount > 0 ? t('admin.proxies.dataExportSelected') : t('admin.proxies.dataExport') }}
             </button>
-            <button @click="showCreateModal = true" class="btn btn-primary">
+            <button @click="showCreateModal = true" class="btn btn-primary" data-tour="proxies-create-btn">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.proxies.createProxy') }}
             </button>
@@ -438,13 +438,14 @@
             required
             class="input"
             :placeholder="t('admin.proxies.enterProxyName')"
+            data-tour="proxy-form-name"
           />
         </div>
-        <div>
+        <div data-tour="proxy-form-protocol">
           <label class="input-label">{{ t('admin.proxies.protocol') }}</label>
           <Select v-model="createForm.protocol" :options="protocolSelectOptions" />
         </div>
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-2 gap-4" data-tour="proxy-form-address">
           <div>
             <label class="input-label">{{ t('admin.proxies.host') }}</label>
             <input
@@ -518,7 +519,7 @@
           />
           <input v-model="createForm.expires_at" type="date" max="9999-12-31" class="input" />
         </div>
-        <div>
+        <div data-tour="proxy-form-fallback">
           <label class="input-label">{{ t('admin.proxies.fallbackMode') }}</label>
           <Select v-model="createForm.fallback_mode" :options="[
             { label: t('admin.proxies.fallbackNone'), value: 'none' },
@@ -603,6 +604,7 @@
             form="create-proxy-form"
             :disabled="submitting"
             class="btn btn-primary"
+            data-tour="proxy-form-submit"
           >
             <svg
               v-if="submitting"
@@ -987,6 +989,8 @@ import EmptyState from '@/components/common/EmptyState.vue'
 import ImportDataModal from '@/components/admin/proxy/ImportDataModal.vue'
 import Select from '@/components/common/Select.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
+import { OWNER_TOUR_SELECTORS } from '@/components/Guide/steps'
+import { advanceTourIfCurrent } from '@/components/Guide/tourControl'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import { useClipboard } from '@/composables/useClipboard'
@@ -1418,6 +1422,8 @@ const handleCreateProxy = async () => {
     appStore.showSuccess(t('admin.proxies.proxyCreated'))
     closeCreateModal()
     loadProxies()
+    // Only advance the onboarding tour if it is waiting on this submit
+    advanceTourIfCurrent(OWNER_TOUR_SELECTORS.proxySubmit)
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.proxies.failedToCreate'))
     console.error('Error creating proxy:', error)

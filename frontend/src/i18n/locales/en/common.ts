@@ -200,6 +200,7 @@ export default {
     recharge: 'Recharge',
     subscribe: 'Subscription',
     docs: 'Docs',
+    ownerGuide: 'Owner Guide',
     myOrders: 'My Orders',
     orderManagement: 'Orders',
     paymentDashboard: 'Payment Dashboard',

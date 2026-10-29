@@ -29,16 +29,17 @@ import { useAppStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
 import { useOnboardingTour } from '@/composables/useOnboardingTour'
 import { useOnboardingStore } from '@/stores/onboarding'
+import { resolveTourRole } from '@/components/Guide/steps'
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
-const isAdmin = computed(() => authStore.user?.role === 'admin')
+const tourRole = computed(() => resolveTourRole(authStore.user?.role))
 
 const { replayTour } = useOnboardingTour({
-  storageKey: isAdmin.value ? 'admin_guide' : 'user_guide',
+  storageKey: `${tourRole.value}_guide`,
   autoStart: true
 })
 

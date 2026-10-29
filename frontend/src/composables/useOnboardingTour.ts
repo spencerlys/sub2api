@@ -4,7 +4,12 @@ import 'driver.js/dist/driver.css'
 import { useAuthStore as useUserStore } from '@/stores/auth'
 import { useOnboardingStore } from '@/stores/onboarding'
 import { useI18n } from 'vue-i18n'
-import { getAdminSteps, getUserSteps } from '@/components/Guide/steps'
+import {
+  getTourSteps,
+  isManualAdvanceStep,
+  resolveTourRole,
+  shouldAutoStartTour
+} from '@/components/Guide/steps'
 
 export interface OnboardingOptions {
   storageKey?: string
@@ -55,6 +60,20 @@ export function useOnboardingTour(options: OnboardingOptions) {
     eventTypes?: string[] // Track which event types were added
   } | null = null
   let autoStartTimer: ReturnType<typeof setTimeout> | null = null
+  let activeResizeObserver: ResizeObserver | null = null
+
+  const cleanupResizeObserver = () => {
+    activeResizeObserver?.disconnect()
+    activeResizeObserver = null
+  }
+
+  const observeActiveElementResize = (element: HTMLElement) => {
+    if (typeof ResizeObserver === 'undefined') return
+    activeResizeObserver = new ResizeObserver(() => {
+      if (driverInstance?.isActive()) driverInstance.refresh()
+    })
+    activeResizeObserver.observe(element)
+  }
   let globalKeyboardHandler: ((e: KeyboardEvent) => void) | null = null
 
   const getStorageKey = () => {
@@ -92,10 +111,10 @@ export function useOnboardingTour(options: OnboardingOptions) {
   }
 
   const startTour = async (startIndex = 0) => {
-    // 动态获取当前用户角色和步骤
-    const isAdmin = userStore.user?.role === 'admin'
+    // 动态获取当前用户角色和步骤（admin / owner / user 各自一套）
+    const tourRole = resolveTourRole(userStore.user?.role)
     const isSimpleMode = userStore.isSimpleMode
-    const steps = isAdmin ? getAdminSteps(t, isSimpleMode) : getUserSteps(t)
+    const steps = getTourSteps(tourRole, t, isSimpleMode)
 
     // 确保 DOM 就绪
     await nextTick()
@@ -273,6 +292,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
       onHighlightStarted: async (element, step) => {
         // 清理之前的监听器
         cleanupClickListener()
+        cleanupResizeObserver()
 
         // 尝试等待元素
         if (!element && step.element && typeof step.element === 'string') {
@@ -282,6 +302,14 @@ export function useOnboardingTour(options: OnboardingOptions) {
              return
            }
            element = document.querySelector(step.element) as HTMLElement
+        }
+
+        // Container steps (e.g. the account authorization dialog) are advanced by
+        // business code after success; just keep the highlight in sync with the
+        // container's size while the user works inside it.
+        if (isManualAdvanceStep(step) && element) {
+          observeActiveElementResize(element as HTMLElement)
+          return
         }
 
         if (isInteractiveStep(step) && element) {
@@ -399,6 +427,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
 
       onDestroyed: () => {
         cleanupClickListener()
+        cleanupResizeObserver()
         // 清理全局监听器 (由此处唯一管理)
         if (globalKeyboardHandler) {
           document.removeEventListener('keydown', globalKeyboardHandler, { capture: true })
@@ -511,6 +540,12 @@ export function useOnboardingTour(options: OnboardingOptions) {
 
   const isCurrentStep = (elementSelector: string): boolean => {
     if (!driverInstance?.isActive()) return false
+    // Match on the step's configured selector first: the highlighted element may
+    // already be detached (e.g. a dialog that closed after a successful action).
+    const activeStep = driverInstance.getActiveStep()
+    if (typeof activeStep?.element === 'string' && activeStep.element === elementSelector) {
+      return true
+    }
     const activeElement = driverInstance.getActiveElement()
     return activeElement?.matches(elementSelector) ?? false
   }
@@ -536,9 +571,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
       return
     }
 
-    // 只在管理员+标准模式下自动启动
-    const isAdmin = userStore.user?.role === 'admin'
-    if (!isAdmin) {
+    // 只在管理员 / AI 账号所有者 + 标准模式下自动启动
+    if (!shouldAutoStartTour(resolveTourRole(userStore.user?.role))) {
       return
     }
 

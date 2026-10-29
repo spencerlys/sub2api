@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" />
+      <UsageStatsCards :stats="usageStats" data-tour="usage-stats-cards" />
       <!-- Charts Section -->
       <div class="space-y-4">
         <div class="card p-4">
@@ -124,7 +124,7 @@
           </template>
         </UsageFilters>
 
-        <div v-show="activeTab === 'usage'" class="overflow-hidden rounded-b-2xl">
+        <div v-show="activeTab === 'usage'" class="overflow-hidden rounded-b-2xl" data-tour="usage-table">
           <UsageTable
             flat
             :data="usageLogs"

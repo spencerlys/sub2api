@@ -405,6 +405,7 @@ describe('useAppStore', () => {
         contact_info: 'test@test.com',
         api_base_url: 'https://api.test.com',
         doc_url: 'https://docs.test.com',
+        owner_guide_url: 'https://docs.test.com/owner-guide',
       }
 
       const store = useAppStore()
@@ -412,6 +413,8 @@ describe('useAppStore', () => {
 
       expect(result).toBe(true)
       expect(store.siteName).toBe('TestSite')
+      expect(store.docUrl).toBe('https://docs.test.com')
+      expect(store.ownerGuideUrl).toBe('https://docs.test.com/owner-guide')
       expect(store.siteLogo).toBe('/logo.png')
       expect(store.siteVersion).toBe('1.0.0')
       expect(store.publicSettingsLoaded).toBe(true)

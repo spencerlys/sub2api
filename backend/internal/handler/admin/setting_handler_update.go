@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -19,6 +20,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 )
+
+// validateOwnerGuideURL requires an absolute http(s) URL. Unlike redirect URLs, a
+// #fragment is allowed so the link can point at a section of a guide page.
+func validateOwnerGuideURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	u.Fragment, u.RawFragment = "", ""
+	return config.ValidateAbsoluteHTTPURL(u.String())
+}
 
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
@@ -159,6 +171,7 @@ type UpdateSettingsRequest struct {
 	APIBaseURL                  string                `json:"api_base_url"`
 	ContactInfo                 string                `json:"contact_info"`
 	DocURL                      string                `json:"doc_url"`
+	OwnerGuideURL               string                `json:"owner_guide_url"`
 	HomeContent                 string                `json:"home_content"`
 	CompactHomeEnabled          bool                  `json:"compact_home_enabled"`
 	HideCcsImportButton         bool                  `json:"hide_ccs_import_button"`
@@ -1256,6 +1269,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
+	// Owner guide URL: empty hides the link; otherwise it must be an absolute http(s) URL.
+	req.OwnerGuideURL = strings.TrimSpace(req.OwnerGuideURL)
+	if req.OwnerGuideURL != "" {
+		if err := validateOwnerGuideURL(req.OwnerGuideURL); err != nil {
+			response.BadRequest(c, "Owner guide URL must be an absolute http(s) URL")
+			return
+		}
+	}
+
 	// Frontend URL 验证
 	req.FrontendURL = strings.TrimSpace(req.FrontendURL)
 	if req.FrontendURL != "" {
@@ -1646,6 +1668,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		APIBaseURL:                             req.APIBaseURL,
 		ContactInfo:                            req.ContactInfo,
 		DocURL:                                 req.DocURL,
+		OwnerGuideURL:                          req.OwnerGuideURL,
 		HomeContent:                            req.HomeContent,
 		CompactHomeEnabled:                     req.CompactHomeEnabled,
 		HideCcsImportButton:                    req.HideCcsImportButton,
@@ -2310,6 +2333,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		APIBaseURL:                                             updatedSettings.APIBaseURL,
 		ContactInfo:                                            updatedSettings.ContactInfo,
 		DocURL:                                                 updatedSettings.DocURL,
+		OwnerGuideURL:                                          updatedSettings.OwnerGuideURL,
 		HomeContent:                                            updatedSettings.HomeContent,
 		CompactHomeEnabled:                                     updatedSettings.CompactHomeEnabled,
 		HideCcsImportButton:                                    updatedSettings.HideCcsImportButton,
