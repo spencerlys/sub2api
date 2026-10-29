@@ -32,6 +32,8 @@ func RegisterAdminRoutes(
 	admin.Use(middleware.AdminComplianceGuard(settingService))
 	// 受限密钥的账户操作走独立资源校验，普通管理员保持原处理器。
 	admin.Use(h.Admin.Account.ScopedAdminKeyAccounts)
+	// AI 账号所有者只能触达本人的账户、代理与分组；路径、查询及请求体引用逐一校验归属。
+	admin.Use(h.Admin.Account.OwnerResourceScope)
 	{
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)

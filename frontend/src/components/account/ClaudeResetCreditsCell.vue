@@ -127,6 +127,7 @@ import {
   type ClaudeResetOutcome
 } from '@/api/admin/claudeResetCredits'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { useIsOwner } from './ownerAccess'
 
 const props = defineProps<{ account: Account }>()
 // Fired after a redemption attempt so the parent can refresh the usage row.
@@ -143,7 +144,9 @@ const redeemFeedback = ref<{ kind: 'success' | 'warning' | 'error'; text: string
 let pendingKey: string | null = null
 let generation = 0
 
-const visible = computed(() => props.account.platform === 'anthropic' && props.account.type === 'oauth')
+// 所有者无 reset-credits 接口权限；#pre-actions 插槽不受影响。
+const isOwner = useIsOwner()
+const visible = computed(() => props.account.platform === 'anthropic' && props.account.type === 'oauth' && !isOwner.value)
 
 watch(() => [props.account.id, props.account.platform, props.account.type], () => {
   generation++

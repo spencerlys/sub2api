@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -205,6 +206,8 @@ func (h *UsageHandler) List(c *gin.Context) {
 		StartTime:             startTime,
 		EndTime:               endTime,
 		ExactTotal:            exactTotal,
+		// 所有者只能看到本人账户的用量；按用户/API Key 筛选已在归属中间件拒绝。
+		OwnerUserID: adminaccess.OwnerUserID(c.Request.Context()),
 	}
 
 	records, result, err := h.usageService.ListWithFilters(c.Request.Context(), params, filters)
@@ -359,6 +362,7 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		UpstreamModelMismatch: upstreamModelMismatch,
 		StartTime:             &startTime,
 		EndTime:               &endTime,
+		OwnerUserID:           adminaccess.OwnerUserID(c.Request.Context()),
 	}
 
 	var stats *usagestats.UsageStats

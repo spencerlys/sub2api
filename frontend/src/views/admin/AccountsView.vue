@@ -83,6 +83,8 @@
                     @click.stop
                   >
                     <div class="overflow-y-auto p-2" :style="{ maxHeight: `${accountToolsDropdownPosition.maxHeight}px` }">
+                      <!-- 所有者无权访问导入导出/CRS 同步/错误透传/TLS 指纹接口 -->
+                      <template v-if="!authStore.isOwner">
                       <div class="px-2 py-2">
                         <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
                           {{ t('admin.accounts.dataActions') }}
@@ -135,6 +137,7 @@
                       </button>
 
                       <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
+                      </template>
                       <div class="px-2 py-2">
                         <div class="flex items-center justify-between gap-3">
                           <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
@@ -176,6 +179,7 @@
       </template>
       <template #table>
         <AccountBulkActionsBar
+          v-if="!authStore.isOwner"
           :selected-ids="selIds"
           :total-results="pagination.total"
           :selecting-all="selectingAllResults"
@@ -343,7 +347,7 @@
                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :title="t('admin.accounts.fallbackActiveTip', { origin: row.proxy_fallback_origin_name })">
                   {{ t('admin.accounts.fallbackActive') }}
                 </span>
-                <button class="text-xs px-1.5 py-0.5 rounded border border-gray-300 dark:border-dark-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700" @click="onRevertFallback(row)">{{ t('admin.accounts.revertProxy') }}</button>
+                <button v-if="!authStore.isOwner" class="text-xs px-1.5 py-0.5 rounded border border-gray-300 dark:border-dark-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700" @click="onRevertFallback(row)">{{ t('admin.accounts.revertProxy') }}</button>
               </div>
             </div>
           </template>
@@ -1274,6 +1278,8 @@ const applyUpstreamBillingRateSnapshots = async (
 }
 
 const refreshUpstreamBillingRates = async (force = false) => {
+  // 上游计费接口仅管理员可用。
+  if (authStore.isOwner) return
   if (upstreamBillingRateRefreshing.value || loading.value || accounts.value.length === 0) return
   if (!force && (
     probingUpstreamBilling.size > 0 ||
@@ -1526,6 +1532,7 @@ const handleManualRefresh = async () => {
 }
 
 const loadUpstreamBillingProbeGlobalState = async () => {
+  if (authStore.isOwner) return
   try {
     const settings = await adminAPI.accounts.getUpstreamBillingProbeSettings()
     upstreamBillingProbeGloballyEnabled.value = settings.enabled
@@ -1820,6 +1827,8 @@ function getAntigravityTierClass(row: any): string {
   }
 }
 
+const OWNER_HIDDEN_COLUMNS = new Set(['select', 'rate_multiplier', 'upstream_billing_rate'])
+
 // All available columns
 const allColumns = computed(() => {
   const c = [
@@ -1848,6 +1857,10 @@ const allColumns = computed(() => {
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
     { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false }
   )
+  // 所有者：无批量操作（不需要勾选列），倍率与上游计费为管理员专属字段。
+  if (authStore.isOwner) {
+    return c.filter(col => !OWNER_HIDDEN_COLUMNS.has(col.key))
+  }
   return c
 })
 

@@ -172,6 +172,8 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		builder = builder.SetI18n(groupIn.I18n)
 	}
 
+	// 归属只取自请求身份，不信任调用方传入的 OwnerUserID。
+	builder.SetNillableOwnerUserID(resourceOwnerID(ctx))
 	created, err := builder.Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrGroupExists)
@@ -480,6 +482,7 @@ func (r *groupRepository) ListBindableWithFilters(ctx context.Context, params pa
 }
 
 func (r *groupRepository) listWithFiltersQuery(ctx context.Context, q *dbent.GroupQuery, params pagination.PaginationParams, platform, status, search string, isExclusive *bool) ([]service.Group, *pagination.PaginationResult, error) {
+	q = q.Where(ownerGroupScope(ctx)...)
 
 	if platform != "" {
 		q = q.Where(group.PlatformEQ(platform))
@@ -683,6 +686,7 @@ func groupListOrder(params pagination.PaginationParams) []func(*entsql.Selector)
 func (r *groupRepository) ListActive(ctx context.Context) ([]service.Group, error) {
 	groups, err := r.client.Group.Query().
 		Where(group.StatusEQ(service.StatusActive)).
+		Where(ownerGroupScope(ctx)...).
 		Order(dbent.Asc(group.FieldSortOrder), dbent.Asc(group.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -756,6 +760,7 @@ func (r *groupRepository) ListActiveIDs(ctx context.Context) ([]int64, error) {
 func (r *groupRepository) ListActiveByPlatform(ctx context.Context, platform string) ([]service.Group, error) {
 	groups, err := r.client.Group.Query().
 		Where(group.StatusEQ(service.StatusActive), group.PlatformEQ(platform)).
+		Where(ownerGroupScope(ctx)...).
 		Order(dbent.Asc(group.FieldSortOrder), dbent.Asc(group.FieldID)).
 		All(ctx)
 	if err != nil {

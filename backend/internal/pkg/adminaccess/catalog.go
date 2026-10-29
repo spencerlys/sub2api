@@ -65,11 +65,24 @@ var definitions = []permissionDefinition{
 	{Permission{"ops.alerts.read", "读取全站告警规则与事件", "监控", "global"}, []string{"GET /ops/alert-rules", "GET /ops/alert-events", "GET /ops/alert-events/:id"}},
 	{Permission{"ops.alerts.write", "修改告警规则、状态与静默", "监控", "global"}, []string{"POST /ops/alert-rules", "PUT /ops/alert-rules/:id", "DELETE /ops/alert-rules/:id", "PUT /ops/alert-events/:id/status", "POST /ops/alert-silences"}},
 	{Permission{"system.read", "读取系统版本与可更新版本", "系统", "global"}, []string{"GET /system/version", "GET /system/check-updates", "GET /system/rollback-versions"}},
+	// 以下为 AI 账号所有者（role=owner）目录，不对管理密钥开放；资源限定为本人所有。
+	// 批量、导入导出、复制、同步等跨资源接口一律不登记。
+	{Permission{"owner.accounts", "管理自有账户", "所有者", "owner"}, []string{"GET /accounts", "GET /accounts/:id", "POST /accounts", "PUT /accounts/:id", "DELETE /accounts/:id", "POST /accounts/:id/test", "POST /accounts/:id/refresh", "POST /accounts/:id/recover-state", "POST /accounts/:id/clear-error", "POST /accounts/:id/clear-rate-limit", "GET /accounts/:id/temp-unschedulable", "DELETE /accounts/:id/temp-unschedulable", "POST /accounts/:id/schedulable", "GET /accounts/:id/models", "POST /accounts/:id/apply-oauth-credentials", "POST /accounts/:id/reset-quota", "POST /accounts/:id/models/sync-upstream", "POST /accounts/check-mixed-channel", "GET /accounts/antigravity/default-model-mapping"}},
+	{Permission{"owner.accounts.oauth", "通过授权流程添加自有账户", "所有者", "owner"}, []string{"POST /accounts/generate-auth-url", "POST /accounts/generate-setup-token-url", "POST /accounts/exchange-code", "POST /accounts/exchange-setup-token-code", "POST /accounts/cookie-auth", "POST /accounts/setup-token-cookie-auth", "POST /openai/generate-auth-url", "POST /openai/exchange-code", "POST /openai/refresh-token", "POST /openai/create-from-oauth", "POST /gemini/oauth/auth-url", "POST /gemini/oauth/exchange-code", "GET /gemini/oauth/capabilities", "POST /antigravity/oauth/auth-url", "POST /antigravity/oauth/exchange-code", "POST /antigravity/oauth/refresh-token", "GET /grok/oauth/capabilities", "POST /grok/oauth/auth-url", "POST /grok/oauth/exchange-code", "POST /grok/oauth/create-from-oauth"}},
+	{Permission{"owner.accounts.stats", "查看自有账户用量统计", "所有者", "owner"}, []string{"GET /accounts/:id/stats", "GET /accounts/:id/usage", "GET /accounts/:id/today-stats", "POST /accounts/usage/batch", "POST /accounts/today-stats/batch"}},
+	{Permission{"owner.groups", "管理自有分组（不含计费字段）", "所有者", "owner"}, []string{"GET /groups", "GET /groups/all", "GET /groups/:id", "POST /groups", "PUT /groups/:id", "DELETE /groups/:id", "GET /groups/:id/model-allowlist-candidates"}},
+	{Permission{"owner.proxies", "管理自有代理", "所有者", "owner"}, []string{"GET /proxies", "GET /proxies/all", "GET /proxies/:id", "POST /proxies", "PUT /proxies/:id", "DELETE /proxies/:id", "POST /proxies/:id/test", "POST /proxies/:id/quality-check"}},
+	{Permission{"owner.usage", "查看自有账户用量明细（不含用户身份）", "所有者", "owner"}, []string{"GET /usage", "GET /usage/stats"}},
+	{Permission{"owner.compliance", "确认本人的后台合规声明", "所有者", "owner"}, []string{"GET /compliance", "POST /compliance/accept"}},
 }
 
+// PermissionCatalog 仅列出管理密钥可授予的权限，所有者目录不对外展示。
 func PermissionCatalog() []Permission {
 	result := make([]Permission, 0, len(definitions))
 	for _, definition := range definitions {
+		if definition.Scope == "owner" {
+			continue
+		}
 		result = append(result, definition.Permission)
 	}
 	return result
@@ -93,6 +106,12 @@ func RouteAllowed(policy Policy, method, path string) bool {
 			}
 		}
 		if !matched {
+			continue
+		}
+		if definition.Scope == "owner" {
+			if policy.owner && slices.Contains(policy.GlobalPermissions, definition.ID) {
+				return true
+			}
 			continue
 		}
 		if definition.Scope == "global" && slices.Contains(policy.GlobalPermissions, definition.ID) {

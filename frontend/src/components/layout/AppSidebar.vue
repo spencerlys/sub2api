@@ -31,8 +31,9 @@
 
     <!-- Navigation -->
     <nav ref="sidebarNavRef" class="sidebar-nav scrollbar-hide">
-      <!-- Admin View: Admin menu first, then personal menu -->
-      <template v-if="isAdmin">
+      <!-- Admin View: Admin menu first, then personal menu.
+           AI account owners reuse this layout with a restricted item list (see adminNavItems). -->
+      <template v-if="isAdmin || isOwner">
         <!-- Admin Section -->
         <div class="sidebar-section">
           <template v-for="item in adminNavItems" :key="item.path">
@@ -101,8 +102,8 @@
           </template>
         </div>
 
-        <!-- Personal Section for Admin (hidden in simple mode) -->
-        <div v-if="!authStore.isSimpleMode" class="sidebar-section">
+        <!-- Personal Section for Admin (hidden in simple mode; owners use the header menu for profile) -->
+        <div v-if="!authStore.isSimpleMode && !isOwner" class="sidebar-section">
           <div class="sidebar-section-title" :class="{ 'sidebar-section-title-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
             <span class="sidebar-section-title-text" :class="{ 'sidebar-section-title-text-collapsed': sidebarCollapsed }">
               {{ t('nav.myAccount') }}
@@ -249,10 +250,13 @@ const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const mobileOpen = computed(() => appStore.mobileOpen)
 const isAdmin = computed(() => authStore.isAdmin)
+const isOwner = computed(() => authStore.isOwner)
 const sidebarNavRef = ref<HTMLElement | null>(null)
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
-const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
+const homePath = computed(() =>
+  isAdmin.value ? '/admin/dashboard' : isOwner.value ? '/admin/accounts' : '/dashboard'
+)
 
 // Per-group expand/collapse overrides. A group with no entry follows the
 // automatic behavior (expanded while the active route is one of its children);
@@ -774,6 +778,16 @@ const customMenuItemsForAdmin = computed(() => {
 
 // Admin navigation items
 const adminNavItems = computed((): NavItem[] => {
+  // AI account owners: only their own accounts / proxies / groups / usage (backend enforces the same scope).
+  if (isOwner.value) {
+    return [
+      { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
+      { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
+      { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon },
+      { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon }
+    ]
+  }
+
   const baseItems: NavItem[] = [
     { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
     { path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon, featureFlag: flagOpsMonitoring },
@@ -954,7 +968,9 @@ watch(
 )
 
 onMounted(() => {
-  void refreshBatchImageAccess()
+  if (!isOwner.value) {
+    void refreshBatchImageAccess()
+  }
   if (isAdmin.value) {
     adminSettingsStore.fetch()
   }

@@ -36,7 +36,7 @@
               @change="loadGroups"
             />
             <Select
-              v-if="!authStore.isSimpleMode"
+              v-if="!authStore.isSimpleMode && !authStore.isOwner"
               v-model="filters.is_exclusive"
               :options="exclusiveOptions"
               :placeholder="t('admin.groups.allGroups')"
@@ -94,7 +94,7 @@
               </div>
             </div>
             <button
-              v-if="!authStore.isSimpleMode"
+              v-if="!authStore.isSimpleMode && !authStore.isOwner"
               @click="openSortModal"
               class="btn btn-secondary"
               :title="t('admin.groups.sortOrder')"
@@ -389,7 +389,7 @@
                 <span class="text-xs">{{ t("common.edit") }}</span>
               </button>
               <button
-                v-if="!authStore.isSimpleMode"
+                v-if="!authStore.isSimpleMode && !authStore.isOwner"
                 data-testid="group-duplicate"
                 :title="
                   duplicatingGroupIds.has(row.id)
@@ -410,7 +410,7 @@
                 </span>
               </button>
               <button
-                v-if="!authStore.isSimpleMode && row.platform === 'composite'"
+                v-if="!authStore.isSimpleMode && !authStore.isOwner && row.platform === 'composite'"
                 data-testid="group-composite-routes"
                 @click="handleCompositeRoutes(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-cyan-600 dark:hover:bg-dark-700 dark:hover:text-cyan-400"
@@ -421,7 +421,7 @@
                 }}</span>
               </button>
               <button
-                v-if="!authStore.isSimpleMode"
+                v-if="!authStore.isSimpleMode && !authStore.isOwner"
                 data-testid="group-rate-multipliers"
                 @click="handleRateMultipliers(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-purple-600 dark:hover:bg-dark-700 dark:hover:text-purple-400"
@@ -432,7 +432,7 @@
                 }}</span>
               </button>
               <button
-                v-if="!authStore.isSimpleMode"
+                v-if="!authStore.isSimpleMode && !authStore.isOwner"
                 data-testid="group-rpm-overrides"
                 @click="handleRPMOverrides(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-orange-600 dark:hover:bg-dark-700 dark:hover:text-orange-400"
@@ -522,7 +522,7 @@
           <p class="input-hint">{{ t("admin.groups.platformHint") }}</p>
         </div>
         <!-- 从分组复制账号 -->
-        <div v-if="!authStore.isSimpleMode && copyAccountsGroupOptions.length > 0">
+        <div v-if="!authStore.isSimpleMode && !authStore.isOwner && copyAccountsGroupOptions.length > 0">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.copyAccounts.title") }}
@@ -611,7 +611,7 @@
           <p class="input-hint">{{ t("admin.groups.copyAccounts.hint") }}</p>
         </div>
         <template v-if="!authStore.isSimpleMode">
-        <div>
+        <div v-if="!authStore.isOwner">
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
@@ -639,7 +639,7 @@
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
         <ReasoningEffortPolicyFields
-          v-if="supportsReasoningEffortPolicyPlatform(createForm.platform)"
+          v-if="!authStore.isOwner && supportsReasoningEffortPolicyPlatform(createForm.platform)"
           ref="createReasoningEffortPolicyRef"
           id-prefix="create-group-reasoning"
           :platform="createForm.platform"
@@ -648,7 +648,7 @@
           v-model:mappings="createForm.reasoning_effort_mappings"
         />
         <div
-          v-if="createForm.subscription_type !== 'subscription'"
+          v-if="!authStore.isOwner && createForm.subscription_type !== 'subscription'"
           data-tour="group-form-exclusive"
         >
           <div class="mb-1.5 flex items-center gap-1">
@@ -707,7 +707,7 @@
         </div>
 
         <!-- Subscription Configuration -->
-        <div class="mt-4 border-t pt-4">
+        <div v-if="!authStore.isOwner" class="mt-4 border-t pt-4">
           <div>
             <label class="input-label">{{
               t("admin.groups.subscription.type")
@@ -891,7 +891,7 @@
 
         <!-- 图片生成计费配置 -->
         <div
-          v-if="supportsImagePricingPlatform(createForm.platform)"
+          v-if="!authStore.isOwner && supportsImagePricingPlatform(createForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -1057,7 +1057,7 @@
 
         <!-- 视频生成计费配置（仅 Grok 平台） -->
         <div
-          v-if="supportsVideoPricingPlatform(createForm.platform)"
+          v-if="!authStore.isOwner && supportsVideoPricingPlatform(createForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -1187,7 +1187,7 @@
         </div>
 
         <!-- 高峰时段倍率配置（仅订阅类型分组） -->
-        <div v-if="createForm.subscription_type === 'subscription'" class="border-t pt-4">
+        <div v-if="!authStore.isOwner && createForm.subscription_type === 'subscription'" class="border-t pt-4">
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
@@ -1234,7 +1234,7 @@
         </div>
 
         <!-- 分组利润控制（五个平台 token 请求） -->
-        <div v-if="isProfitControlPlatform(createForm.platform)" class="border-t pt-4">
+        <div v-if="!authStore.isOwner && isProfitControlPlatform(createForm.platform)" class="border-t pt-4">
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               v-model="createForm.profit_control_enabled"
@@ -1439,7 +1439,7 @@
             </span>
           </div>
           <!-- 降级分组选择（仅当启用 claude_code_only 时显示） -->
-          <div v-if="createForm.claude_code_only" class="mt-3">
+          <div v-if="!authStore.isOwner && createForm.claude_code_only" class="mt-3">
             <label class="input-label">{{
               t("admin.groups.claudeCode.fallbackGroup")
             }}</label>
@@ -1456,7 +1456,7 @@
 
         <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
         <div
-          v-if="createForm.platform === 'openai'"
+          v-if="!authStore.isOwner && createForm.platform === 'openai'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1490,7 +1490,7 @@
         </div>
 
 
-        <div class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
+        <div v-if="!authStore.isOwner" class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
               <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
@@ -1511,7 +1511,7 @@
 
         <!-- Grok Voice 显式定价（仅 grok 平台） -->
         <div
-          v-if="createForm.platform === 'grok'"
+          v-if="!authStore.isOwner && createForm.platform === 'grok'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1573,7 +1573,7 @@
         </div>
         <!-- OpenAI Fast 开关（OpenAI 与 Composite 平台） -->
         <div
-          v-if="supportsGroupOpenAIFast(createForm.platform)"
+          v-if="!authStore.isOwner && supportsGroupOpenAIFast(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1609,7 +1609,7 @@
 
         <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
         <div
-          v-if="supportsLivePlatform(createForm.platform)"
+          v-if="!authStore.isOwner && supportsLivePlatform(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1631,7 +1631,7 @@
 
         <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
         <div
-          v-if="supportsMessagesDispatchPlatform(createForm.platform)"
+          v-if="!authStore.isOwner && supportsMessagesDispatchPlatform(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1892,6 +1892,7 @@
         <!-- 无效请求兜底（仅 anthropic/antigravity 平台，且非订阅分组） -->
         <div
           v-if="
+            !authStore.isOwner &&
             ['anthropic', 'antigravity'].includes(createForm.platform) &&
             createForm.subscription_type !== 'subscription'
           "
@@ -2174,7 +2175,7 @@
         </div>
         <template v-if="!authStore.isSimpleMode">
         <!-- 从分组复制账号（编辑时） -->
-        <div v-if="copyAccountsGroupOptionsForEdit.length > 0">
+        <div v-if="!authStore.isOwner && copyAccountsGroupOptionsForEdit.length > 0">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.copyAccounts.title") }}
@@ -2264,7 +2265,7 @@
             {{ t("admin.groups.copyAccounts.hintEdit") }}
           </p>
         </div>
-        <div>
+        <div v-if="!authStore.isOwner">
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
@@ -2291,7 +2292,7 @@
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
         <ReasoningEffortPolicyFields
-          v-if="supportsReasoningEffortPolicyPlatform(editForm.platform)"
+          v-if="!authStore.isOwner && supportsReasoningEffortPolicyPlatform(editForm.platform)"
           ref="editReasoningEffortPolicyRef"
           id-prefix="edit-group-reasoning"
           :platform="editForm.platform"
@@ -2299,7 +2300,7 @@
           v-model:over-limit="editForm.max_reasoning_effort_over_limit"
           v-model:mappings="editForm.reasoning_effort_mappings"
         />
-        <div v-if="editForm.subscription_type !== 'subscription'">
+        <div v-if="!authStore.isOwner && editForm.subscription_type !== 'subscription'">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.form.exclusive") }}
@@ -2360,7 +2361,7 @@
         </div>
 
         <!-- Subscription Configuration -->
-        <div class="mt-4 border-t pt-4">
+        <div v-if="!authStore.isOwner" class="mt-4 border-t pt-4">
           <div>
             <label class="input-label">{{
               t("admin.groups.subscription.type")
@@ -2545,7 +2546,7 @@
 
         <!-- 图片生成计费配置 -->
         <div
-          v-if="supportsImagePricingPlatform(editForm.platform)"
+          v-if="!authStore.isOwner && supportsImagePricingPlatform(editForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -2711,7 +2712,7 @@
 
         <!-- 视频生成计费配置（仅 Grok 平台） -->
         <div
-          v-if="supportsVideoPricingPlatform(editForm.platform)"
+          v-if="!authStore.isOwner && supportsVideoPricingPlatform(editForm.platform)"
           class="border-t pt-4"
         >
           <label
@@ -2841,7 +2842,7 @@
         </div>
 
         <!-- 高峰时段倍率配置（仅订阅类型分组） -->
-        <div v-if="editForm.subscription_type === 'subscription'" class="border-t pt-4">
+        <div v-if="!authStore.isOwner && editForm.subscription_type === 'subscription'" class="border-t pt-4">
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
@@ -2888,7 +2889,7 @@
         </div>
 
         <!-- 分组利润控制（五个平台 token 请求） -->
-        <div v-if="isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
+        <div v-if="!authStore.isOwner && isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               v-model="editForm.profit_control_enabled"
@@ -3093,7 +3094,7 @@
             </span>
           </div>
           <!-- 降级分组选择（仅当启用 claude_code_only 时显示） -->
-          <div v-if="editForm.claude_code_only" class="mt-3">
+          <div v-if="!authStore.isOwner && editForm.claude_code_only" class="mt-3">
             <label class="input-label">{{
               t("admin.groups.claudeCode.fallbackGroup")
             }}</label>
@@ -3110,7 +3111,7 @@
 
         <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
         <div
-          v-if="editForm.platform === 'openai'"
+          v-if="!authStore.isOwner && editForm.platform === 'openai'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -3145,7 +3146,7 @@
 
         <!-- 固定账号获取 Codex Model Manifest（仅 openai 平台，仅编辑对话框） -->
         <CodexManifestAccountsField
-          v-if="editForm.platform === 'openai' && editingGroup"
+          v-if="!authStore.isOwner && editForm.platform === 'openai' && editingGroup"
           ref="editCodexManifestRef"
           :group-id="editingGroup.id"
           :model-value="editCodexManifestConfig"
@@ -3154,7 +3155,7 @@
         />
 
 
-        <div class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
+        <div v-if="!authStore.isOwner" class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
               <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
@@ -3175,7 +3176,7 @@
 
         <!-- Grok Voice 显式定价（仅 grok 平台） -->
         <div
-          v-if="editForm.platform === 'grok'"
+          v-if="!authStore.isOwner && editForm.platform === 'grok'"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -3237,7 +3238,7 @@
         </div>
         <!-- OpenAI Fast 开关（OpenAI 与 Composite 平台） -->
         <div
-          v-if="supportsGroupOpenAIFast(editForm.platform)"
+          v-if="!authStore.isOwner && supportsGroupOpenAIFast(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -3273,7 +3274,7 @@
 
         <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
         <div
-          v-if="supportsLivePlatform(editForm.platform)"
+          v-if="!authStore.isOwner && supportsLivePlatform(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -3295,7 +3296,7 @@
 
         <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
         <div
-          v-if="supportsMessagesDispatchPlatform(editForm.platform)"
+          v-if="!authStore.isOwner && supportsMessagesDispatchPlatform(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -3555,6 +3556,7 @@
         <!-- 无效请求兜底（仅 anthropic/antigravity 平台，且非订阅分组） -->
         <div
           v-if="
+            !authStore.isOwner &&
             ['anthropic', 'antigravity'].includes(editForm.platform) &&
             editForm.subscription_type !== 'subscription'
           "
@@ -4505,7 +4507,8 @@ const allColumns = computed<Column[]>(() => {
     { key: "status", label: t("admin.groups.columns.status"), sortable: true },
     { key: "actions", label: t("admin.groups.columns.actions"), sortable: false },
   ];
-  if (authStore.isSimpleMode) return basic;
+  // Owners: pricing/billing columns are irrelevant and usage/capacity summaries are admin-only endpoints.
+  if (authStore.isSimpleMode || authStore.isOwner) return basic;
   return [
     ...basic.slice(0, 3),
     { key: "billing_type", label: t("admin.groups.columns.billingType"), sortable: true },
@@ -4596,9 +4599,14 @@ const saveColumnsToStorage = () => {
 
 const isColumnVisible = (key: string) => !hiddenColumns.has(key);
 const hasVisibleUsageSummaryConsumer = computed(
-  () => !authStore.isSimpleMode && (isColumnVisible("usage") || isColumnVisible("billing_type")),
+  () =>
+    !authStore.isSimpleMode &&
+    !authStore.isOwner &&
+    (isColumnVisible("usage") || isColumnVisible("billing_type")),
 );
-const hasVisibleCapacityColumn = computed(() => !authStore.isSimpleMode && isColumnVisible("capacity"));
+const hasVisibleCapacityColumn = computed(
+  () => !authStore.isSimpleMode && !authStore.isOwner && isColumnVisible("capacity"),
+);
 
 const toggleColumn = (key: string) => {
   const validKeys = getValidHiddenColumnKeys();
@@ -4645,7 +4653,9 @@ const exclusiveOptions = computed(() => [
 
 const platformOptions = computed(() =>
   GROUP_PLATFORM_OPTIONS.filter(
-    (option) => !authStore.isSimpleMode || option.value !== "composite",
+    (option) =>
+      (!authStore.isSimpleMode && !authStore.isOwner) ||
+      option.value !== "composite",
   ),
 );
 
@@ -5939,10 +5949,15 @@ const handleCreateGroup = async () => {
   ) {
     return;
   }
-  if (!validateProfitControlForm(createForm)) {
+  // Owners cannot see or edit pricing/profit fields (backend ignores them), so skip their validation.
+  if (!authStore.isOwner && !validateProfitControlForm(createForm)) {
     return;
   }
-  if (!validateGroupReasoningMultipliers(createForm.model_pricing)) return;
+  if (
+    !authStore.isOwner &&
+    !validateGroupReasoningMultipliers(createForm.model_pricing)
+  )
+    return;
   // 模型白名单：开启且没有任何条目时阻止提交，与后端 400 对齐。
   if (
     createModelAllowlistState.enabled &&
@@ -6279,10 +6294,15 @@ const handleUpdateGroup = async () => {
   ) {
     return;
   }
-  if (!validateProfitControlForm(editForm)) {
+  // Owners cannot see or edit pricing/profit fields (backend ignores them), so skip their validation.
+  if (!authStore.isOwner && !validateProfitControlForm(editForm)) {
     return;
   }
-  if (!validateGroupReasoningMultipliers(editForm.model_pricing)) return;
+  if (
+    !authStore.isOwner &&
+    !validateGroupReasoningMultipliers(editForm.model_pricing)
+  )
+    return;
   // 模型白名单：开启且没有任何条目时阻止提交，与后端 400 对齐。
   if (
     editModelAllowlistState.enabled &&
@@ -6293,6 +6313,7 @@ const handleUpdateGroup = async () => {
   }
   // 固定账号 manifest：开启后至少一个账号，前端阻止提交并提示。
   if (
+    !authStore.isOwner &&
     editForm.platform === "openai" &&
     editCodexManifestConfig.value.enabled &&
     editCodexManifestConfig.value.account_ids.length === 0
@@ -6928,7 +6949,8 @@ const saveSortOrder = async () => {
 onMounted(() => {
   loadGroups();
   if (!authStore.isSimpleMode) {
-    void loadLiveCapability();
+    // GET /admin/groups/live-capability is admin-only; owners never see the Live toggle.
+    if (!authStore.isOwner) void loadLiveCapability();
     loadModelAllowlistCandidates("create", 0, createForm.platform);
   }
   document.addEventListener("click", handleClickOutside);

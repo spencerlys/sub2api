@@ -14,6 +14,8 @@ const (
 const (
 	RoleAdmin = "admin"
 	RoleUser  = "user"
+	// RoleOwner AI 账号所有者：只能管理自己的账户、代理与分组，并查看自有账户用量。
+	RoleOwner = "owner"
 )
 
 // Platform constants

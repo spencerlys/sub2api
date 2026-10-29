@@ -64,7 +64,9 @@
               <Icon name="shield" size="md" class="mr-2" :class="batchQualityChecking ? 'animate-pulse' : ''" />
               {{ t('admin.proxies.batchQualityCheck') }}
             </button>
+            <!-- owner 无 batch-delete / import / export 接口权限 -->
             <button
+              v-if="!isOwner"
               @click="openBatchDelete"
               :disabled="selectedCount === 0"
               class="btn btn-danger"
@@ -73,10 +75,10 @@
               <Icon name="trash" size="md" class="mr-2" />
               {{ t('admin.proxies.batchDeleteAction') }}
             </button>
-            <button @click="showImportData = true" class="btn btn-secondary">
+            <button v-if="!isOwner" @click="showImportData = true" class="btn btn-secondary">
               {{ t('admin.proxies.dataImport') }}
             </button>
-            <button @click="showExportDataDialog = true" class="btn btn-secondary">
+            <button v-if="!isOwner" @click="showExportDataDialog = true" class="btn btn-secondary">
               {{ selectedCount > 0 ? t('admin.proxies.dataExportSelected') : t('admin.proxies.dataExport') }}
             </button>
             <button @click="showCreateModal = true" class="btn btn-primary">
@@ -200,7 +202,7 @@
 
           <template #cell-account_count="{ row, value }">
             <button
-              v-if="(value || 0) > 0"
+              v-if="(value || 0) > 0 && !isOwner"
               type="button"
               class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-primary-700 hover:bg-gray-200 dark:bg-dark-600 dark:text-primary-300 dark:hover:bg-dark-500"
               @click="openAccountsModal(row)"
@@ -211,7 +213,7 @@
               v-else
               class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
             >
-              {{ t('admin.groups.accountsCount', { count: 0 }) }}
+              {{ t('admin.groups.accountsCount', { count: value || 0 }) }}
             </span>
           </template>
 
@@ -392,6 +394,7 @@
             {{ t('admin.proxies.standardAdd') }}
           </button>
           <button
+            v-if="!isOwner"
             type="button"
             @click="createMode = 'batch'"
             :class="[
@@ -815,6 +818,7 @@
 
     <!-- Batch Delete Confirmation Dialog -->
     <ConfirmDialog
+      v-if="!isOwner"
       :show="showBatchDeleteDialog"
       :title="t('admin.proxies.batchDelete')"
       :message="t('admin.proxies.batchDeleteConfirm', { count: selectedCount })"
@@ -825,6 +829,7 @@
       @cancel="showBatchDeleteDialog = false"
     />
     <ConfirmDialog
+      v-if="!isOwner"
       :show="showExportDataDialog"
       :title="t('admin.proxies.dataExport')"
       :message="t('admin.proxies.dataExportConfirmMessage')"
@@ -835,6 +840,7 @@
     />
 
     <ImportDataModal
+      v-if="!isOwner"
       :show="showImportData"
       @close="showImportData = false"
       @imported="handleDataImported"
@@ -967,6 +973,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import type { Proxy, ProxyAccountSummary, ProxyProtocol, ProxyQualityCheckResult } from '@/types'
 import type { Column } from '@/components/common/types'
@@ -991,6 +998,10 @@ import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+// AI account owner: only list/get/create/update/delete/test/quality-check are allowed;
+// batch, import/export and /proxies/:id/accounts return 403.
+const isOwner = computed(() => authStore.isOwner)
 const { copyToClipboard } = useClipboard()
 
 const columns = computed<Column[]>(() => [
@@ -1352,6 +1363,7 @@ const parseBatchInput = () => {
 }
 
 const handleBatchCreate = async () => {
+  if (isOwner.value) return
   if (batchParseResult.valid === 0) return
 
   submitting.value = true
@@ -1958,7 +1970,7 @@ const handleDelete = (proxy: Proxy) => {
 }
 
 const openBatchDelete = () => {
-  if (selectedCount.value === 0) {
+  if (isOwner.value || selectedCount.value === 0) {
     return
   }
   showBatchDeleteDialog.value = true
@@ -2008,6 +2020,7 @@ const confirmBatchDelete = async () => {
 }
 
 const openAccountsModal = async (proxy: Proxy) => {
+  if (isOwner.value) return
   accountsProxy.value = proxy
   proxyAccounts.value = []
   accountsLoading.value = true

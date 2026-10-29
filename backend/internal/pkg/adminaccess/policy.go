@@ -20,13 +20,17 @@ type Rule struct {
 type Policy struct {
 	Rules             []Rule   `json:"rules"`
 	GlobalPermissions []string `json:"global_permissions"`
+	// owner 不参与序列化，只能由 OwnerPolicy 构造，存储的管理密钥策略无法获得所有者目录。
+	owner bool
 }
 
+// Principal 是受限管理密钥或 AI 账号所有者（OwnerUserID 非零）的身份。
 type Principal struct {
-	KeyID     string
-	KeyName   string
-	CreatorID int64
-	Policy    Policy
+	KeyID       string
+	KeyName     string
+	CreatorID   int64
+	OwnerUserID int64
+	Policy      Policy
 }
 
 type Account struct {
@@ -42,9 +46,42 @@ func WithPrincipal(ctx context.Context, principal *Principal) context.Context {
 	return context.WithValue(ctx, principalContextKey{}, principal)
 }
 
+// FromContext 只返回受限管理密钥身份；所有者身份见 OwnerFromContext，
+// 避免所有者落入管理密钥专用的脱敏处理器。
 func FromContext(ctx context.Context) *Principal {
 	principal, _ := ctx.Value(principalContextKey{}).(*Principal)
+	if principal == nil || principal.OwnerUserID != 0 {
+		return nil
+	}
 	return principal
+}
+
+// OwnerFromContext 返回 AI 账号所有者身份；管理员与管理密钥均返回 nil。
+func OwnerFromContext(ctx context.Context) *Principal {
+	principal, _ := ctx.Value(principalContextKey{}).(*Principal)
+	if principal == nil || principal.OwnerUserID <= 0 {
+		return nil
+	}
+	return principal
+}
+
+// OwnerUserID 返回当前所有者用户 ID，非所有者返回 0。
+func OwnerUserID(ctx context.Context) int64 {
+	if principal := OwnerFromContext(ctx); principal != nil {
+		return principal.OwnerUserID
+	}
+	return 0
+}
+
+// OwnerPolicy 授予全部所有者目录权限；资源归属由处理器与仓储按 OwnerUserID 再次限定。
+func OwnerPolicy() Policy {
+	permissions := []string{}
+	for _, definition := range definitions {
+		if definition.Scope == "owner" {
+			permissions = append(permissions, definition.ID)
+		}
+	}
+	return Policy{GlobalPermissions: permissions, owner: true}
 }
 
 // Matches 保持分组、类型和平台在同一规则中匹配，不拆开合并授权条件。

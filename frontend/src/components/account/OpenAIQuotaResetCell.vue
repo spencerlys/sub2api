@@ -14,6 +14,8 @@
     <div class="flex flex-wrap items-center gap-1.5">
       <slot name="pre-actions" />
 
+      <!-- 所有者无 /openai/accounts/:id/{quota,reset-quota,referrals} 接口权限 -->
+      <template v-if="!isOwner">
       <button
         type="button"
         class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
@@ -74,6 +76,7 @@
         <span class="truncate tabular-nums">{{ creditsDisplay }}</span>
       </button>
       <OpenAIReferralCell :account="account" />
+      </template>
     </div>
 
     <div v-if="creditsCacheWarning" class="text-[10px] text-amber-600 dark:text-amber-400">
@@ -192,6 +195,7 @@ import {
 } from '@/api/admin/accounts'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import OpenAIReferralCell from '@/components/account/OpenAIReferralCell.vue'
+import { useIsOwner } from './ownerAccess'
 
 const props = defineProps<{
   account: Account
@@ -202,6 +206,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const isOwner = useIsOwner()
 
 // Visible only for OpenAI OAuth accounts.
 const visible = computed(() => props.account.platform === 'openai' && props.account.type === 'oauth')

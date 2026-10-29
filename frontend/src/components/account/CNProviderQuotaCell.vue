@@ -22,7 +22,8 @@
          buttons): a verb label tells users this chip is clickable. The previous
          noun label ("5h/weekly") read as a passive caption and users could not
          discover the manual refresh. -->
-    <div class="flex flex-wrap items-center gap-1.5">
+    <!-- 所有者无 /cn-providers 探测接口权限，只展示持久化快照 -->
+    <div v-if="!isOwner" class="flex flex-wrap items-center gap-1.5">
       <button
         type="button"
         data-test="cn-provider-quota-probe"
@@ -67,12 +68,14 @@ import type { CNProviderQuotaProbeResult } from '@/api/admin/cnProviders'
 import type { Account } from '@/types'
 import { cnQuotaCellVisible } from './credentialsBuilder'
 import UsageProgressBar from './UsageProgressBar.vue'
+import { useIsOwner } from './ownerAccess'
 
 const props = defineProps<{
   account: Account
 }>()
 
 const { t } = useI18n()
+const isOwner = useIsOwner()
 
 const visible = computed(() => cnQuotaCellVisible(props.account))
 
@@ -131,7 +134,7 @@ const snapshotIsStale = computed(() => {
 onMounted(() => {
   if (!visible.value) return
   data.value = snapshotData.value
-  if (!snapshotIsStale.value) return
+  if (!snapshotIsStale.value || isOwner.value) return
   // 模块级去抖：列表页每行一个实例，翻页/筛选/刷新会重复挂载；同一账号
   // 短时间内已自动探测过则跳过，避免对上游形成探测风暴。
   const last = lastAutoProbeAt.get(props.account.id) ?? 0

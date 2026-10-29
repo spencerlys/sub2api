@@ -61,6 +61,9 @@ func (Proxy) Fields() []ent.Field {
 		field.Int64("backup_proxy_id").
 			Optional().Nillable().
 			Comment("Backup proxy id when fallback_mode=proxy (self-reference)."),
+		field.Int64("owner_user_id").
+			Optional().Nillable().
+			Comment("AI account owner user id; NULL = owned by admins (legacy)."),
 		field.Int("expiry_warn_days").
 			Default(7).
 			Comment("Days before expiry to flag as expiring-soon (per proxy)."),
@@ -89,5 +92,6 @@ func (Proxy) Indexes() []ent.Index {
 		index.Fields("deleted_at"),
 		index.Fields("expires_at"),
 		index.Fields("backup_proxy_id"),
+		index.Fields("owner_user_id"),
 	}
 }

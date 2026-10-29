@@ -72,6 +72,11 @@ func (u *User) IsAdmin() bool {
 	return u.Role == RoleAdmin
 }
 
+// IsOwner 判断是否为 AI 账号所有者；所有者不是管理员。
+func (u *User) IsOwner() bool {
+	return u.Role == RoleOwner
+}
+
 func (u *User) IsActive() bool {
 	return u.Status == StatusActive
 }

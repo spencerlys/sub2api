@@ -226,6 +226,33 @@ func (_u *ProxyUpdate) ClearBackupProxyID() *ProxyUpdate {
 	return _u
 }
 
+// SetOwnerUserID sets the "owner_user_id" field.
+func (_u *ProxyUpdate) SetOwnerUserID(v int64) *ProxyUpdate {
+	_u.mutation.ResetOwnerUserID()
+	_u.mutation.SetOwnerUserID(v)
+	return _u
+}
+
+// SetNillableOwnerUserID sets the "owner_user_id" field if the given value is not nil.
+func (_u *ProxyUpdate) SetNillableOwnerUserID(v *int64) *ProxyUpdate {
+	if v != nil {
+		_u.SetOwnerUserID(*v)
+	}
+	return _u
+}
+
+// AddOwnerUserID adds value to the "owner_user_id" field.
+func (_u *ProxyUpdate) AddOwnerUserID(v int64) *ProxyUpdate {
+	_u.mutation.AddOwnerUserID(v)
+	return _u
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (_u *ProxyUpdate) ClearOwnerUserID() *ProxyUpdate {
+	_u.mutation.ClearOwnerUserID()
+	return _u
+}
+
 // SetExpiryWarnDays sets the "expiry_warn_days" field.
 func (_u *ProxyUpdate) SetExpiryWarnDays(v int) *ProxyUpdate {
 	_u.mutation.ResetExpiryWarnDays()
@@ -476,6 +503,15 @@ func (_u *ProxyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.FallbackMode(); ok {
 		_spec.SetField(proxy.FieldFallbackMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.OwnerUserID(); ok {
+		_spec.SetField(proxy.FieldOwnerUserID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedOwnerUserID(); ok {
+		_spec.AddField(proxy.FieldOwnerUserID, field.TypeInt64, value)
+	}
+	if _u.mutation.OwnerUserIDCleared() {
+		_spec.ClearField(proxy.FieldOwnerUserID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.ExpiryWarnDays(); ok {
 		_spec.SetField(proxy.FieldExpiryWarnDays, field.TypeInt, value)
@@ -819,6 +855,33 @@ func (_u *ProxyUpdateOne) ClearBackupProxyID() *ProxyUpdateOne {
 	return _u
 }
 
+// SetOwnerUserID sets the "owner_user_id" field.
+func (_u *ProxyUpdateOne) SetOwnerUserID(v int64) *ProxyUpdateOne {
+	_u.mutation.ResetOwnerUserID()
+	_u.mutation.SetOwnerUserID(v)
+	return _u
+}
+
+// SetNillableOwnerUserID sets the "owner_user_id" field if the given value is not nil.
+func (_u *ProxyUpdateOne) SetNillableOwnerUserID(v *int64) *ProxyUpdateOne {
+	if v != nil {
+		_u.SetOwnerUserID(*v)
+	}
+	return _u
+}
+
+// AddOwnerUserID adds value to the "owner_user_id" field.
+func (_u *ProxyUpdateOne) AddOwnerUserID(v int64) *ProxyUpdateOne {
+	_u.mutation.AddOwnerUserID(v)
+	return _u
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (_u *ProxyUpdateOne) ClearOwnerUserID() *ProxyUpdateOne {
+	_u.mutation.ClearOwnerUserID()
+	return _u
+}
+
 // SetExpiryWarnDays sets the "expiry_warn_days" field.
 func (_u *ProxyUpdateOne) SetExpiryWarnDays(v int) *ProxyUpdateOne {
 	_u.mutation.ResetExpiryWarnDays()
@@ -1099,6 +1162,15 @@ func (_u *ProxyUpdateOne) sqlSave(ctx context.Context) (_node *Proxy, err error)
 	}
 	if value, ok := _u.mutation.FallbackMode(); ok {
 		_spec.SetField(proxy.FieldFallbackMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.OwnerUserID(); ok {
+		_spec.SetField(proxy.FieldOwnerUserID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedOwnerUserID(); ok {
+		_spec.AddField(proxy.FieldOwnerUserID, field.TypeInt64, value)
+	}
+	if _u.mutation.OwnerUserIDCleared() {
+		_spec.ClearField(proxy.FieldOwnerUserID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.ExpiryWarnDays(); ok {
 		_spec.SetField(proxy.FieldExpiryWarnDays, field.TypeInt, value)

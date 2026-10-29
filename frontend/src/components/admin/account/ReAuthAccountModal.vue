@@ -130,8 +130,8 @@
         :show-help="isAnthropic"
         :show-proxy-warning="isAnthropic"
         :show-cookie-option="isAnthropic"
-        :show-refresh-token-option="isOpenAI || isAntigravity || isGrok"
-        :show-sso-option="isGrok"
+        :show-refresh-token-option="isOpenAI || isAntigravity || (isGrok && !isOwner)"
+        :show-sso-option="isGrok && !isOwner"
         :show-email-password-option="false"
         :allow-multiple="false"
         :method-label="t('admin.accounts.inputMethod')"
@@ -207,6 +207,7 @@ import type { Account } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
+import { useIsOwner } from '@/components/account/ownerAccess'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -231,6 +232,8 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+// AI 账号所有者无 Grok refresh-token / SSO 接口权限
+const isOwner = useIsOwner()
 const { t } = useI18n()
 
 // OAuth composables

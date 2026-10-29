@@ -548,6 +548,7 @@ export default {
       allStatuses: 'All Status',
       admin: 'Admin',
       user: 'User',
+      owner: 'AI Account Owner',
       disabled: 'Disabled',
       email: 'Email',
       password: 'Password',
@@ -742,7 +743,8 @@ export default {
       totalRecharged: 'Total Recharged',
       roles: {
         admin: 'Admin',
-        user: 'User'
+        user: 'User',
+        owner: 'AI Account Owner'
       },
       // Settings Dropdowns
       filterSettings: 'Filter Settings',

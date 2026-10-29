@@ -196,6 +196,8 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	if account.ParentAccountID != nil {
 		builder.SetParentAccountID(*account.ParentAccountID)
 	}
+	// 归属只取自请求身份，不信任调用方传入的 OwnerUserID。
+	builder.SetNillableOwnerUserID(resourceOwnerID(ctx))
 
 	created, err := builder.Save(ctx)
 	if err != nil {
@@ -1134,7 +1136,7 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 }
 
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
-	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)
+	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).Where(ownerAccountScope(ctx)...)
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo
@@ -1164,7 +1166,7 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 }
 
 func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).Where(ownerAccountScope(ctx)...).All(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3690,6 +3692,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		Extra:                   copyJSONMap(m.Extra),
 		ProxyID:                 m.ProxyID,
 		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
+		OwnerUserID:             m.OwnerUserID,
 		Concurrency:             m.Concurrency,
 		Priority:                m.Priority,
 		RateMultiplier:          &rateMultiplier,

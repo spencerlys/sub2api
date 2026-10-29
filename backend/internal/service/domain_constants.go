@@ -20,6 +20,7 @@ const (
 const (
 	RoleAdmin = domain.RoleAdmin
 	RoleUser  = domain.RoleUser
+	RoleOwner = domain.RoleOwner
 )
 
 // Affiliate rebate settings

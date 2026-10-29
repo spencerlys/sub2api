@@ -14,7 +14,7 @@
                 @change="onDateRangeChange"
               />
             </div>
-            <div class="ml-auto flex items-center gap-2">
+            <div v-if="!isOwner" class="ml-auto flex items-center gap-2">
               <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
               <div class="w-28">
                 <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
@@ -22,7 +22,8 @@
             </div>
           </div>
         </div>
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <!-- owner 无 /dashboard/* 权限：隐藏依赖 dashboard 的图表 -->
+        <div v-if="!isOwner" class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <ModelDistributionChart
             v-model:source="modelDistributionSource"
             v-model:metric="modelDistributionMetric"
@@ -56,12 +57,13 @@
             :loading="endpointStatsLoading"
             :show-source-toggle="true"
             :show-metric-toggle="true"
+            :enable-breakdown="!isOwner"
             :title="t('usage.endpointDistribution')"
             :start-date="startDate"
             :end-date="endDate"
             :filters="breakdownFilters"
           />
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend v-if="!isOwner" :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
       <!-- 明细区：tab 栏 + 筛选 + 内容收进同一张卡片，消除割裂感 -->
@@ -83,7 +85,7 @@
           </button>
         </div>
 
-        <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
+        <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" :owner="isOwner" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
           <template #after-reset>
             <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef">
               <button
@@ -128,6 +130,7 @@
             :data="usageLogs"
             :loading="loading"
             :columns="visibleColumns"
+            :show-id-fallback="isOwner"
             :server-side-sort="true"
             :default-sort-key="'created_at'"
             :default-sort-order="'desc'"
@@ -163,11 +166,12 @@
           />
         </div>
       </div>
-      <OpsErrorDetailModal v-model:show="showErrorModal" :error-id="selectedErrorId" :error-type="'request'" />
+      <OpsErrorDetailModal v-if="!isOwner" v-model:show="showErrorModal" :error-id="selectedErrorId" :error-type="'request'" />
     </div>
   </AppLayout>
   <UsageExportProgress :show="exportProgress.show" :progress="exportProgress.progress" :current="exportProgress.current" :total="exportProgress.total" :estimated-time="exportProgress.estimatedTime" @cancel="cancelExport" />
   <UsageCleanupDialog
+    v-if="!isOwner"
     :show="cleanupDialogVisible"
     :filters="filters"
     :start-date="startDate"
@@ -176,6 +180,7 @@
   />
   <!-- Balance history modal triggered from usage table user click -->
   <UserBalanceHistoryModal
+    v-if="!isOwner"
     :show="showBalanceHistoryModal"
     :user="balanceHistoryUser"
     :hide-actions="true"
@@ -188,7 +193,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
-import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
+import { useAppStore } from '@/stores/app'; import { useAuthStore } from '@/stores/auth'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
@@ -209,6 +214,10 @@ import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat,
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+// AI account owner: backend only allows GET /usage + /usage/stats (scoped to own accounts) and
+// rejects user_id/api_key_id params; dashboard/ops/users/cleanup endpoints are forbidden.
+const isOwner = computed(() => authStore.isOwner)
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
@@ -331,7 +340,7 @@ const applyRouteQueryFilters = () => {
 
   filters.value = {
     ...filters.value,
-    user_id: queryUserId,
+    user_id: isOwner.value ? undefined : queryUserId,
     start_date: startDate.value,
     end_date: endDate.value
   }
@@ -370,6 +379,10 @@ const onDateRangeChange = (range: { startDate: string; endDate: string; preset: 
   applyFilters()
 }
 
+// owner 请求一律剥离 user_id/api_key_id(后端对 owner 携带这两个参数返回 403)
+const scopedFilters = (): AdminUsageQueryParams =>
+  isOwner.value ? { ...filters.value, user_id: undefined, api_key_id: undefined } : filters.value
+
 const buildUsageListParams = (
   page: number,
   pageSize: number,
@@ -381,7 +394,7 @@ const buildUsageListParams = (
     page,
     page_size: pageSize,
     exact_total: exactTotal,
-    ...filters.value,
+    ...scopedFilters(),
     stream: legacyStream === null ? undefined : legacyStream,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
@@ -405,7 +418,7 @@ const loadStats = async (force = false) => {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const s = await adminAPI.usage.getStats({
-      ...filters.value,
+      ...scopedFilters(),
       stream: legacyStream === null ? undefined : legacyStream,
       ...(force ? { nocache: 1 } : {}),
     })
@@ -433,6 +446,7 @@ const invalidateModelStatsCache = () => {
 }
 
 const loadModelStats = async (source: ModelDistributionSource, force = false) => {
+  if (isOwner.value) return
   if (!force && loadedModelSources[source]) {
     return
   }
@@ -487,6 +501,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
 }
 
 const loadChartData = async () => {
+  if (isOwner.value) return
   const seq = ++chartReqSeq
   chartsLoading.value = true
   try {
@@ -591,16 +606,20 @@ const exportToExcel = async () => {
       t('usage.firstToken'), t('usage.duration'),
       t('admin.usage.requestId'), t('admin.usage.upstreamRequestId'), t('usage.userAgent'), t('admin.usage.ipAddress')
     ]
-    const ws = XLSX.utils.aoa_to_sheet([headers])
+    // owner 行不含 user/api_key/user_agent/ip_address:导出时去掉这些列(按 headers/rows 下标)
+    const ownerOmitCols = isOwner.value ? new Set([1, 2, 31, 32]) : null
+    const keepCols = <T,>(cols: T[]): T[] =>
+      ownerOmitCols ? cols.filter((_, i) => !ownerOmitCols.has(i)) : cols
+    const ws = XLSX.utils.aoa_to_sheet([keepCols(headers)])
     while (true) {
       const res = await adminUsageAPI.list(
         buildUsageListParams(p, 100, true),
         { signal: c.signal }
       )
       if (c.signal.aborted) break; if (p === 1) { total = res.total; exportProgress.total = total }
-      const rows = (res.items || []).map((log: AdminUsageLog) => [
-        log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
-        log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || '',
+      const rows = (res.items || []).map((log: AdminUsageLog) => keepCols([
+        log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || (isOwner.value && log.account_id ? `#${log.account_id}` : ''), log.model,
+        log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || (isOwner.value && log.group_id ? `#${log.group_id}` : ''),
         log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
         log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
         log.input_cost?.toFixed(6) || '0.000000', log.output_cost?.toFixed(6) || '0.000000',
@@ -609,7 +628,7 @@ const exportToExcel = async () => {
         log.total_cost?.toFixed(6) || '0.000000', log.actual_cost?.toFixed(6) || '0.000000',
         ((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(6), log.first_token_ms ?? '', log.duration_ms,
         log.request_id || '', log.upstream_request_id || '', log.user_agent || '', log.ip_address || ''
-      ])
+      ]))
       if (rows.length) {
         XLSX.utils.sheet_add_aoa(ws, rows, { origin: -1 })
       }
@@ -636,6 +655,8 @@ const HIDDEN_COLUMNS_VERSION_KEY = 'usage-hidden-columns-version'
 // 隐藏列版本链：每级只把当级新增列加入隐藏集，不重置用户已显式打开的列。
 const HIDDEN_COLUMNS_PREV_VERSION = 'request-id-hidden-by-default'
 const HIDDEN_COLUMNS_CURRENT_VERSION = 'upstream-request-id-hidden-by-default'
+// owner 行不返回这些字段/嵌套对象,直接不展示
+const OWNER_HIDDEN_COLUMNS = ['user', 'api_key', 'user_agent', 'ip_address']
 
 const allColumns = computed(() => [
   { key: 'user', label: t('admin.usage.user'), sortable: false },
@@ -655,7 +676,7 @@ const allColumns = computed(() => [
   { key: 'upstream_request_id', label: t('admin.usage.upstreamRequestId'), sortable: false },
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
   { key: 'ip_address', label: t('admin.usage.ipAddress'), sortable: false }
-])
+].filter(col => !isOwner.value || !OWNER_HIDDEN_COLUMNS.includes(col.key)))
 
 const hiddenColumns = reactive<Set<string>>(new Set())
 
@@ -785,16 +806,21 @@ const loadSavedColumns = () => {
 // Detail tabs
 type DetailTab = 'usage' | 'errors' | 'ranking'
 const activeTab = ref<DetailTab>('usage')
-const detailTabs = computed(() => [
-  { key: 'usage' as const, label: t('usage.tabs.usage'), icon: 'document' as const },
-  { key: 'errors' as const, label: t('usage.tabs.errors'), icon: 'exclamationTriangle' as const },
-  { key: 'ranking' as const, label: t('usage.tabs.ranking'), icon: 'chart' as const },
-])
+const detailTabs = computed(() => {
+  const tabs = [
+    { key: 'usage' as const, label: t('usage.tabs.usage'), icon: 'document' as const },
+    { key: 'errors' as const, label: t('usage.tabs.errors'), icon: 'exclamationTriangle' as const },
+    { key: 'ranking' as const, label: t('usage.tabs.ranking'), icon: 'chart' as const },
+  ]
+  // 错误请求(/ops)与用户排行(/dashboard)对 owner 不可用
+  return isOwner.value ? tabs.filter((tab) => tab.key === 'usage') : tabs
+})
 const usageFiltersRef = ref<InstanceType<typeof UsageFilters> | null>(null)
 const rankingMounted = ref(false)
 const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
 
 const switchTab = (tab: DetailTab) => {
+  if (isOwner.value && tab !== 'usage') return
   activeTab.value = tab
   if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
   if (tab === 'ranking') rankingMounted.value = true
@@ -816,6 +842,7 @@ const toRFC3339 = (d: string | undefined, endOfDay = false): string | undefined 
   d ? new Date(d + (endOfDay ? 'T23:59:59.999' : 'T00:00:00')).toISOString() : undefined
 
 const loadAdminErrors = async () => {
+  if (isOwner.value) return
   errLoading.value = true
   try {
     const resp = await listErrorLogs({

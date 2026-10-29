@@ -23,7 +23,8 @@
          buttons): the old chip doubled as the data display and a hidden click
          target, which users could not discover. The verb label makes the
          affordance explicit. -->
-    <div class="flex flex-wrap items-center gap-1.5">
+    <!-- 所有者无 /cn-providers 探测接口权限，只展示持久化快照 -->
+    <div v-if="!isOwner" class="flex flex-wrap items-center gap-1.5">
       <button
         type="button"
         data-test="cn-provider-balance-probe"
@@ -64,12 +65,14 @@ import type { CNProviderBalanceEntry, CNProviderBalanceResult } from '@/api/admi
 import type { Account } from '@/types'
 import { platformTextClass } from '@/utils/platformColors'
 import { cnBalanceCellVisible } from './credentialsBuilder'
+import { useIsOwner } from './ownerAccess'
 
 const props = defineProps<{
   account: Account
 }>()
 
 const { t } = useI18n()
+const isOwner = useIsOwner()
 
 // 仅 kimi / deepseek payg 账号有公开余额端点（智谱 payg 无）。
 const visible = computed(() => cnBalanceCellVisible(props.account))

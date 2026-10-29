@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -478,7 +479,20 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	return account, nil
 }
 
+// stripOwnerAccountBilling 让 AI 账号所有者无法修改账户计费倍率与计费开关（Q2），由管理员统一维护。
+func stripOwnerAccountBilling(ctx context.Context, rateMultiplier **float64, rateSync **bool, extra map[string]any) {
+	if adminaccess.OwnerUserID(ctx) <= 0 {
+		return
+	}
+	*rateMultiplier = nil
+	if rateSync != nil {
+		*rateSync = nil
+	}
+	delete(extra, openAILongContextBillingEnabledKey)
+}
+
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	stripOwnerAccountBilling(ctx, &input.RateMultiplier, nil, input.Extra)
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -577,6 +591,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
+	stripOwnerAccountBilling(ctx, &input.RateMultiplier, &input.RateSyncEnabled, input.Extra)
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -939,6 +954,8 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, UpstreamBillingRateSyncEnabledExtraKey)
 	delete(updates, UpstreamBillingProbeExtraKey)
 	delete(updates, OllamaCloudUsageSessionExtraKey)
+	var noRate *float64
+	stripOwnerAccountBilling(ctx, &noRate, nil, updates)
 	delete(updates, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
 	delete(updates, OpenCodeGoUsageAutoRefreshExtraKey)

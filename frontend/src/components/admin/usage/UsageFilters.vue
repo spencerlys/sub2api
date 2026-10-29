@@ -4,8 +4,8 @@
     <div class="flex flex-wrap items-end justify-between gap-4">
       <!-- Left: filters (allowed to wrap to multiple rows) -->
       <div class="flex flex-1 flex-wrap items-end gap-4">
-        <!-- User Search -->
-        <div ref="userSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
+        <!-- User Search (owner 无 search-users 权限且不能按 user_id 过滤) -->
+        <div v-if="!owner" ref="userSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('admin.usage.userFilter') }}</label>
           <input
             v-model="userKeyword"
@@ -41,8 +41,8 @@
           </div>
         </div>
 
-        <!-- API Key Search -->
-        <div ref="apiKeySearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
+        <!-- API Key Search (owner 无 search-api-keys 权限且不能按 api_key_id 过滤) -->
+        <div v-if="!owner" ref="apiKeySearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
           <input
             v-model="apiKeyKeyword"
@@ -78,8 +78,8 @@
           </div>
         </div>
 
-        <!-- Model Filter -->
-        <div class="w-full sm:w-auto sm:min-w-[220px]">
+        <!-- Model Filter (选项来自 dashboard 模型统计,owner 无该数据) -->
+        <div v-if="!owner" class="w-full sm:w-auto sm:min-w-[220px]">
           <label class="input-label">{{ t('usage.model') }}</label>
           <Select v-model="filters.model" :options="modelOptions" searchable @change="emitChange" />
         </div>
@@ -186,7 +186,7 @@
         </button>
         <slot name="after-reset" />
         <template v-if="mode === 'usage'">
-          <button type="button" @click="$emit('cleanup')" class="btn btn-danger">
+          <button v-if="!owner" type="button" @click="$emit('cleanup')" class="btn btn-danger">
             {{ t('admin.usage.cleanup.button') }}
           </button>
           <button type="button" @click="$emit('export')" :disabled="exporting" class="btn btn-primary">
@@ -222,12 +222,15 @@ interface Props {
   mode?: 'usage' | 'errors' | 'ranking'
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  /** AI 账号 owner:隐藏用户/API Key/模型筛选与清理按钮(对应接口对 owner 不可用) */
+  owner?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showActions: true,
   mode: 'usage',
-  flat: false
+  flat: false,
+  owner: false
 })
 const emit = defineEmits([
   'update:modelValue',

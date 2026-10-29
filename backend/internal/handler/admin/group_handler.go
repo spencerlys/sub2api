@@ -183,6 +183,41 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 	*req = UpdateGroupRequest{Name: req.Name, Description: req.Description, I18n: req.I18n}
 }
 
+// ownerGroupPlatformError 所有者分组只能直接绑定本人账户，组合分组会路由到其他分组。
+const ownerGroupPlatformError = "账号所有者不能创建组合分组"
+
+// sanitizeCreateGroupRequestForOwner 只保留所有者可写的非计费字段（Q2）：倍率、订阅、限额、
+// 各类价格、兜底分组与复制来源一律丢弃，分组强制专属，仅管理员授权的用户可用。
+func sanitizeCreateGroupRequestForOwner(req *CreateGroupRequest) bool {
+	if req == nil || req.Platform == service.PlatformComposite {
+		return false
+	}
+	*req = CreateGroupRequest{
+		Name: req.Name, Description: req.Description, I18n: req.I18n, Platform: req.Platform,
+		ClaudeCodeOnly: req.ClaudeCodeOnly, ModelRouting: req.ModelRouting, ModelRoutingEnabled: req.ModelRoutingEnabled,
+		MCPXMLInject: req.MCPXMLInject, SupportedModelScopes: req.SupportedModelScopes, ModelAllowlist: req.ModelAllowlist,
+		RPMLimit: req.RPMLimit, RequireOAuthOnly: req.RequireOAuthOnly, RequirePrivacySet: req.RequirePrivacySet,
+		RateMultiplier: 1, IsExclusive: true, SubscriptionType: service.SubscriptionTypeStandard,
+	}
+	return true
+}
+
+// sanitizeUpdateGroupRequestForOwner 与创建相同的字段白名单；未提供的字段保持原值。
+func sanitizeUpdateGroupRequestForOwner(req *UpdateGroupRequest) bool {
+	if req == nil || req.Platform == service.PlatformComposite {
+		return false
+	}
+	exclusive := true
+	*req = UpdateGroupRequest{
+		Name: req.Name, Description: req.Description, I18n: req.I18n, Platform: req.Platform, Status: req.Status,
+		ClaudeCodeOnly: req.ClaudeCodeOnly, ModelRouting: req.ModelRouting, ModelRoutingEnabled: req.ModelRoutingEnabled,
+		MCPXMLInject: req.MCPXMLInject, SupportedModelScopes: req.SupportedModelScopes, ModelAllowlist: req.ModelAllowlist,
+		RPMLimit: req.RPMLimit, RequireOAuthOnly: req.RequireOAuthOnly, RequirePrivacySet: req.RequirePrivacySet,
+		IsExclusive: &exclusive,
+	}
+	return true
+}
+
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
 	Name                      string                        `json:"name" binding:"required"`
@@ -655,6 +690,10 @@ func (h *GroupHandler) Create(c *gin.Context) {
 	if h.isSimpleMode() {
 		sanitizeCreateGroupRequestForSimpleMode(&req)
 	}
+	if isOwnerRequest(c) && !sanitizeCreateGroupRequestForOwner(&req) {
+		response.BadRequest(c, ownerGroupPlatformError)
+		return
+	}
 
 	if err := service.ValidatePeakRateConfig(req.SubscriptionType, req.PeakRateEnabled, req.PeakStart, req.PeakEnd, float64ValueOrDefault(req.PeakRateMultiplier, 1.0)); err != nil {
 		response.BadRequest(c, err.Error())
@@ -813,6 +852,10 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	}
 	if h.isSimpleMode() {
 		sanitizeUpdateGroupRequestForSimpleMode(&req)
+	}
+	if isOwnerRequest(c) && !sanitizeUpdateGroupRequestForOwner(&req) {
+		response.BadRequest(c, ownerGroupPlatformError)
+		return
 	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{

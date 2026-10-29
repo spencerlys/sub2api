@@ -22,15 +22,17 @@ import (
 )
 
 type Account struct {
-	ID                      int64
-	Name                    string
-	Notes                   *string
-	Platform                string
-	Type                    string
-	Credentials             map[string]any
-	Extra                   map[string]any
-	ProxyID                 *int64
-	ProxyFallbackOriginID   *int64
+	ID                    int64
+	Name                  string
+	Notes                 *string
+	Platform              string
+	Type                  string
+	Credentials           map[string]any
+	Extra                 map[string]any
+	ProxyID               *int64
+	ProxyFallbackOriginID *int64
+	// OwnerUserID AI 账号所有者；nil 表示管理员所有。
+	OwnerUserID             *int64
 	ProxyFallbackOriginName *string // 仅展示用
 	Concurrency             int
 	Priority                int

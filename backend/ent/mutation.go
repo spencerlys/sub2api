@@ -2296,6 +2296,8 @@ type AccountMutation struct {
 	extra                       *map[string]interface{}
 	proxy_fallback_origin_id    *int64
 	addproxy_fallback_origin_id *int64
+	owner_user_id               *int64
+	addowner_user_id            *int64
 	concurrency                 *int
 	addconcurrency              *int
 	load_factor                 *int
@@ -2903,6 +2905,76 @@ func (m *AccountMutation) ResetProxyFallbackOriginID() {
 	m.proxy_fallback_origin_id = nil
 	m.addproxy_fallback_origin_id = nil
 	delete(m.clearedFields, account.FieldProxyFallbackOriginID)
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (m *AccountMutation) SetOwnerUserID(i int64) {
+	m.owner_user_id = &i
+	m.addowner_user_id = nil
+}
+
+// OwnerUserID returns the value of the "owner_user_id" field in the mutation.
+func (m *AccountMutation) OwnerUserID() (r int64, exists bool) {
+	v := m.owner_user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOwnerUserID returns the old "owner_user_id" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldOwnerUserID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOwnerUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOwnerUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOwnerUserID: %w", err)
+	}
+	return oldValue.OwnerUserID, nil
+}
+
+// AddOwnerUserID adds i to the "owner_user_id" field.
+func (m *AccountMutation) AddOwnerUserID(i int64) {
+	if m.addowner_user_id != nil {
+		*m.addowner_user_id += i
+	} else {
+		m.addowner_user_id = &i
+	}
+}
+
+// AddedOwnerUserID returns the value that was added to the "owner_user_id" field in this mutation.
+func (m *AccountMutation) AddedOwnerUserID() (r int64, exists bool) {
+	v := m.addowner_user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (m *AccountMutation) ClearOwnerUserID() {
+	m.owner_user_id = nil
+	m.addowner_user_id = nil
+	m.clearedFields[account.FieldOwnerUserID] = struct{}{}
+}
+
+// OwnerUserIDCleared returns if the "owner_user_id" field was cleared in this mutation.
+func (m *AccountMutation) OwnerUserIDCleared() bool {
+	_, ok := m.clearedFields[account.FieldOwnerUserID]
+	return ok
+}
+
+// ResetOwnerUserID resets all changes to the "owner_user_id" field.
+func (m *AccountMutation) ResetOwnerUserID() {
+	m.owner_user_id = nil
+	m.addowner_user_id = nil
+	delete(m.clearedFields, account.FieldOwnerUserID)
 }
 
 // SetConcurrency sets the "concurrency" field.
@@ -4138,7 +4210,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 31)
+	fields := make([]string, 0, 32)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -4171,6 +4243,9 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.proxy_fallback_origin_id != nil {
 		fields = append(fields, account.FieldProxyFallbackOriginID)
+	}
+	if m.owner_user_id != nil {
+		fields = append(fields, account.FieldOwnerUserID)
 	}
 	if m.concurrency != nil {
 		fields = append(fields, account.FieldConcurrency)
@@ -4262,6 +4337,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.ProxyID()
 	case account.FieldProxyFallbackOriginID:
 		return m.ProxyFallbackOriginID()
+	case account.FieldOwnerUserID:
+		return m.OwnerUserID()
 	case account.FieldConcurrency:
 		return m.Concurrency()
 	case account.FieldLoadFactor:
@@ -4333,6 +4410,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldProxyID(ctx)
 	case account.FieldProxyFallbackOriginID:
 		return m.OldProxyFallbackOriginID(ctx)
+	case account.FieldOwnerUserID:
+		return m.OldOwnerUserID(ctx)
 	case account.FieldConcurrency:
 		return m.OldConcurrency(ctx)
 	case account.FieldLoadFactor:
@@ -4458,6 +4537,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetProxyFallbackOriginID(v)
+		return nil
+	case account.FieldOwnerUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOwnerUserID(v)
 		return nil
 	case account.FieldConcurrency:
 		v, ok := value.(int)
@@ -4610,6 +4696,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addproxy_fallback_origin_id != nil {
 		fields = append(fields, account.FieldProxyFallbackOriginID)
 	}
+	if m.addowner_user_id != nil {
+		fields = append(fields, account.FieldOwnerUserID)
+	}
 	if m.addconcurrency != nil {
 		fields = append(fields, account.FieldConcurrency)
 	}
@@ -4632,6 +4721,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case account.FieldProxyFallbackOriginID:
 		return m.AddedProxyFallbackOriginID()
+	case account.FieldOwnerUserID:
+		return m.AddedOwnerUserID()
 	case account.FieldConcurrency:
 		return m.AddedConcurrency()
 	case account.FieldLoadFactor:
@@ -4655,6 +4746,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddProxyFallbackOriginID(v)
+		return nil
+	case account.FieldOwnerUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOwnerUserID(v)
 		return nil
 	case account.FieldConcurrency:
 		v, ok := value.(int)
@@ -4703,6 +4801,9 @@ func (m *AccountMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(account.FieldProxyFallbackOriginID) {
 		fields = append(fields, account.FieldProxyFallbackOriginID)
+	}
+	if m.FieldCleared(account.FieldOwnerUserID) {
+		fields = append(fields, account.FieldOwnerUserID)
 	}
 	if m.FieldCleared(account.FieldLoadFactor) {
 		fields = append(fields, account.FieldLoadFactor)
@@ -4768,6 +4869,9 @@ func (m *AccountMutation) ClearField(name string) error {
 		return nil
 	case account.FieldProxyFallbackOriginID:
 		m.ClearProxyFallbackOriginID()
+		return nil
+	case account.FieldOwnerUserID:
+		m.ClearOwnerUserID()
 		return nil
 	case account.FieldLoadFactor:
 		m.ClearLoadFactor()
@@ -4848,6 +4952,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldProxyFallbackOriginID:
 		m.ResetProxyFallbackOriginID()
+		return nil
+	case account.FieldOwnerUserID:
+		m.ResetOwnerUserID()
 		return nil
 	case account.FieldConcurrency:
 		m.ResetConcurrency()
@@ -22151,6 +22258,8 @@ type GroupMutation struct {
 	addfallback_group_id                    *int64
 	fallback_group_id_on_invalid_request    *int64
 	addfallback_group_id_on_invalid_request *int64
+	owner_user_id                           *int64
+	addowner_user_id                        *int64
 	model_routing                           *map[string][]int64
 	model_routing_enabled                   *bool
 	mcp_xml_inject                          *bool
@@ -24722,6 +24831,76 @@ func (m *GroupMutation) ResetFallbackGroupIDOnInvalidRequest() {
 	delete(m.clearedFields, group.FieldFallbackGroupIDOnInvalidRequest)
 }
 
+// SetOwnerUserID sets the "owner_user_id" field.
+func (m *GroupMutation) SetOwnerUserID(i int64) {
+	m.owner_user_id = &i
+	m.addowner_user_id = nil
+}
+
+// OwnerUserID returns the value of the "owner_user_id" field in the mutation.
+func (m *GroupMutation) OwnerUserID() (r int64, exists bool) {
+	v := m.owner_user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOwnerUserID returns the old "owner_user_id" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldOwnerUserID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOwnerUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOwnerUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOwnerUserID: %w", err)
+	}
+	return oldValue.OwnerUserID, nil
+}
+
+// AddOwnerUserID adds i to the "owner_user_id" field.
+func (m *GroupMutation) AddOwnerUserID(i int64) {
+	if m.addowner_user_id != nil {
+		*m.addowner_user_id += i
+	} else {
+		m.addowner_user_id = &i
+	}
+}
+
+// AddedOwnerUserID returns the value that was added to the "owner_user_id" field in this mutation.
+func (m *GroupMutation) AddedOwnerUserID() (r int64, exists bool) {
+	v := m.addowner_user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (m *GroupMutation) ClearOwnerUserID() {
+	m.owner_user_id = nil
+	m.addowner_user_id = nil
+	m.clearedFields[group.FieldOwnerUserID] = struct{}{}
+}
+
+// OwnerUserIDCleared returns if the "owner_user_id" field was cleared in this mutation.
+func (m *GroupMutation) OwnerUserIDCleared() bool {
+	_, ok := m.clearedFields[group.FieldOwnerUserID]
+	return ok
+}
+
+// ResetOwnerUserID resets all changes to the "owner_user_id" field.
+func (m *GroupMutation) ResetOwnerUserID() {
+	m.owner_user_id = nil
+	m.addowner_user_id = nil
+	delete(m.clearedFields, group.FieldOwnerUserID)
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (m *GroupMutation) SetModelRouting(value map[string][]int64) {
 	m.model_routing = &value
@@ -25995,7 +26174,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 68)
+	fields := make([]string, 0, 69)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -26133,6 +26312,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.fallback_group_id_on_invalid_request != nil {
 		fields = append(fields, group.FieldFallbackGroupIDOnInvalidRequest)
+	}
+	if m.owner_user_id != nil {
+		fields = append(fields, group.FieldOwnerUserID)
 	}
 	if m.model_routing != nil {
 		fields = append(fields, group.FieldModelRouting)
@@ -26300,6 +26482,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.FallbackGroupID()
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		return m.FallbackGroupIDOnInvalidRequest()
+	case group.FieldOwnerUserID:
+		return m.OwnerUserID()
 	case group.FieldModelRouting:
 		return m.ModelRouting()
 	case group.FieldModelRoutingEnabled:
@@ -26445,6 +26629,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldFallbackGroupID(ctx)
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		return m.OldFallbackGroupIDOnInvalidRequest(ctx)
+	case group.FieldOwnerUserID:
+		return m.OldOwnerUserID(ctx)
 	case group.FieldModelRouting:
 		return m.OldModelRouting(ctx)
 	case group.FieldModelRoutingEnabled:
@@ -26820,6 +27006,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetFallbackGroupIDOnInvalidRequest(v)
 		return nil
+	case group.FieldOwnerUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOwnerUserID(v)
+		return nil
 	case group.FieldModelRouting:
 		v, ok := value.(map[string][]int64)
 		if !ok {
@@ -27051,6 +27244,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addfallback_group_id_on_invalid_request != nil {
 		fields = append(fields, group.FieldFallbackGroupIDOnInvalidRequest)
 	}
+	if m.addowner_user_id != nil {
+		fields = append(fields, group.FieldOwnerUserID)
+	}
 	if m.addsort_order != nil {
 		fields = append(fields, group.FieldSortOrder)
 	}
@@ -27117,6 +27313,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedFallbackGroupID()
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		return m.AddedFallbackGroupIDOnInvalidRequest()
+	case group.FieldOwnerUserID:
+		return m.AddedOwnerUserID()
 	case group.FieldSortOrder:
 		return m.AddedSortOrder()
 	case group.FieldRpmLimit:
@@ -27295,6 +27493,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddFallbackGroupIDOnInvalidRequest(v)
 		return nil
+	case group.FieldOwnerUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOwnerUserID(v)
+		return nil
 	case group.FieldSortOrder:
 		v, ok := value.(int)
 		if !ok {
@@ -27394,6 +27599,9 @@ func (m *GroupMutation) ClearedFields() []string {
 	if m.FieldCleared(group.FieldFallbackGroupIDOnInvalidRequest) {
 		fields = append(fields, group.FieldFallbackGroupIDOnInvalidRequest)
 	}
+	if m.FieldCleared(group.FieldOwnerUserID) {
+		fields = append(fields, group.FieldOwnerUserID)
+	}
 	if m.FieldCleared(group.FieldModelRouting) {
 		fields = append(fields, group.FieldModelRouting)
 	}
@@ -27473,6 +27681,9 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		m.ClearFallbackGroupIDOnInvalidRequest()
+		return nil
+	case group.FieldOwnerUserID:
+		m.ClearOwnerUserID()
 		return nil
 	case group.FieldModelRouting:
 		m.ClearModelRouting()
@@ -27622,6 +27833,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldFallbackGroupIDOnInvalidRequest:
 		m.ResetFallbackGroupIDOnInvalidRequest()
+		return nil
+	case group.FieldOwnerUserID:
+		m.ResetOwnerUserID()
 		return nil
 	case group.FieldModelRouting:
 		m.ResetModelRouting()
@@ -37577,6 +37791,8 @@ type ProxyMutation struct {
 	status                 *string
 	expires_at             *time.Time
 	fallback_mode          *string
+	owner_user_id          *int64
+	addowner_user_id       *int64
 	expiry_warn_days       *int
 	addexpiry_warn_days    *int
 	clearedFields          map[string]struct{}
@@ -38244,6 +38460,76 @@ func (m *ProxyMutation) ResetBackupProxyID() {
 	delete(m.clearedFields, proxy.FieldBackupProxyID)
 }
 
+// SetOwnerUserID sets the "owner_user_id" field.
+func (m *ProxyMutation) SetOwnerUserID(i int64) {
+	m.owner_user_id = &i
+	m.addowner_user_id = nil
+}
+
+// OwnerUserID returns the value of the "owner_user_id" field in the mutation.
+func (m *ProxyMutation) OwnerUserID() (r int64, exists bool) {
+	v := m.owner_user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOwnerUserID returns the old "owner_user_id" field's value of the Proxy entity.
+// If the Proxy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ProxyMutation) OldOwnerUserID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOwnerUserID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOwnerUserID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOwnerUserID: %w", err)
+	}
+	return oldValue.OwnerUserID, nil
+}
+
+// AddOwnerUserID adds i to the "owner_user_id" field.
+func (m *ProxyMutation) AddOwnerUserID(i int64) {
+	if m.addowner_user_id != nil {
+		*m.addowner_user_id += i
+	} else {
+		m.addowner_user_id = &i
+	}
+}
+
+// AddedOwnerUserID returns the value that was added to the "owner_user_id" field in this mutation.
+func (m *ProxyMutation) AddedOwnerUserID() (r int64, exists bool) {
+	v := m.addowner_user_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (m *ProxyMutation) ClearOwnerUserID() {
+	m.owner_user_id = nil
+	m.addowner_user_id = nil
+	m.clearedFields[proxy.FieldOwnerUserID] = struct{}{}
+}
+
+// OwnerUserIDCleared returns if the "owner_user_id" field was cleared in this mutation.
+func (m *ProxyMutation) OwnerUserIDCleared() bool {
+	_, ok := m.clearedFields[proxy.FieldOwnerUserID]
+	return ok
+}
+
+// ResetOwnerUserID resets all changes to the "owner_user_id" field.
+func (m *ProxyMutation) ResetOwnerUserID() {
+	m.owner_user_id = nil
+	m.addowner_user_id = nil
+	delete(m.clearedFields, proxy.FieldOwnerUserID)
+}
+
 // SetExpiryWarnDays sets the "expiry_warn_days" field.
 func (m *ProxyMutation) SetExpiryWarnDays(i int) {
 	m.expiry_warn_days = &i
@@ -38469,7 +38755,7 @@ func (m *ProxyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ProxyMutation) Fields() []string {
-	fields := make([]string, 0, 14)
+	fields := make([]string, 0, 15)
 	if m.created_at != nil {
 		fields = append(fields, proxy.FieldCreatedAt)
 	}
@@ -38509,6 +38795,9 @@ func (m *ProxyMutation) Fields() []string {
 	if m.backup_proxy != nil {
 		fields = append(fields, proxy.FieldBackupProxyID)
 	}
+	if m.owner_user_id != nil {
+		fields = append(fields, proxy.FieldOwnerUserID)
+	}
 	if m.expiry_warn_days != nil {
 		fields = append(fields, proxy.FieldExpiryWarnDays)
 	}
@@ -38546,6 +38835,8 @@ func (m *ProxyMutation) Field(name string) (ent.Value, bool) {
 		return m.FallbackMode()
 	case proxy.FieldBackupProxyID:
 		return m.BackupProxyID()
+	case proxy.FieldOwnerUserID:
+		return m.OwnerUserID()
 	case proxy.FieldExpiryWarnDays:
 		return m.ExpiryWarnDays()
 	}
@@ -38583,6 +38874,8 @@ func (m *ProxyMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldFallbackMode(ctx)
 	case proxy.FieldBackupProxyID:
 		return m.OldBackupProxyID(ctx)
+	case proxy.FieldOwnerUserID:
+		return m.OldOwnerUserID(ctx)
 	case proxy.FieldExpiryWarnDays:
 		return m.OldExpiryWarnDays(ctx)
 	}
@@ -38685,6 +38978,13 @@ func (m *ProxyMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetBackupProxyID(v)
 		return nil
+	case proxy.FieldOwnerUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOwnerUserID(v)
+		return nil
 	case proxy.FieldExpiryWarnDays:
 		v, ok := value.(int)
 		if !ok {
@@ -38703,6 +39003,9 @@ func (m *ProxyMutation) AddedFields() []string {
 	if m.addport != nil {
 		fields = append(fields, proxy.FieldPort)
 	}
+	if m.addowner_user_id != nil {
+		fields = append(fields, proxy.FieldOwnerUserID)
+	}
 	if m.addexpiry_warn_days != nil {
 		fields = append(fields, proxy.FieldExpiryWarnDays)
 	}
@@ -38716,6 +39019,8 @@ func (m *ProxyMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case proxy.FieldPort:
 		return m.AddedPort()
+	case proxy.FieldOwnerUserID:
+		return m.AddedOwnerUserID()
 	case proxy.FieldExpiryWarnDays:
 		return m.AddedExpiryWarnDays()
 	}
@@ -38733,6 +39038,13 @@ func (m *ProxyMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddPort(v)
+		return nil
+	case proxy.FieldOwnerUserID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOwnerUserID(v)
 		return nil
 	case proxy.FieldExpiryWarnDays:
 		v, ok := value.(int)
@@ -38764,6 +39076,9 @@ func (m *ProxyMutation) ClearedFields() []string {
 	if m.FieldCleared(proxy.FieldBackupProxyID) {
 		fields = append(fields, proxy.FieldBackupProxyID)
 	}
+	if m.FieldCleared(proxy.FieldOwnerUserID) {
+		fields = append(fields, proxy.FieldOwnerUserID)
+	}
 	return fields
 }
 
@@ -38792,6 +39107,9 @@ func (m *ProxyMutation) ClearField(name string) error {
 		return nil
 	case proxy.FieldBackupProxyID:
 		m.ClearBackupProxyID()
+		return nil
+	case proxy.FieldOwnerUserID:
+		m.ClearOwnerUserID()
 		return nil
 	}
 	return fmt.Errorf("unknown Proxy nullable field %s", name)
@@ -38839,6 +39157,9 @@ func (m *ProxyMutation) ResetField(name string) error {
 		return nil
 	case proxy.FieldBackupProxyID:
 		m.ResetBackupProxyID()
+		return nil
+	case proxy.FieldOwnerUserID:
+		m.ResetOwnerUserID()
 		return nil
 	case proxy.FieldExpiryWarnDays:
 		m.ResetExpiryWarnDays()

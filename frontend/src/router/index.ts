@@ -12,6 +12,7 @@ import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
+import { OWNER_HOME_PATH, isOwnerAllowedAdminPath, resolveRoleHomePath } from './roleHome'
 import { resolveRouteDocumentTitle } from './title'
 
 /**
@@ -808,7 +809,7 @@ router.beforeEach(async (to, _from, next) => {
     try {
       const status = await getSetupStatus()
       if (!status.needs_setup) {
-        next(resolveCompletedSetupRedirectPath(authStore.isAuthenticated, authStore.isAdmin))
+        next(resolveCompletedSetupRedirectPath(authStore.isAuthenticated, authStore.isAdmin, authStore.isOwner))
         return
       }
     } catch {
@@ -822,12 +823,12 @@ router.beforeEach(async (to, _from, next) => {
     if (authStore.isAuthenticated && (to.path === '/login' || to.path === '/register')) {
       // In backend mode, non-admin users should NOT be redirected away from login
       // (they are blocked from all protected routes, so redirecting would cause a loop)
-      if (appStore.backendModeEnabled && !authStore.isAdmin) {
+      if (appStore.backendModeEnabled && !authStore.isAdmin && !authStore.isOwner) {
         next()
         return
       }
-      // Admin users go to admin dashboard, regular users go to user dashboard
-      next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+      // Admin users go to admin dashboard, owners to their accounts, regular users to user dashboard
+      next(resolveRoleHomePath(authStore.isAdmin, authStore.isOwner))
       return
     }
     // Model Plaza:公开路由但受「启用开关 + 可选强制登录」双重控制(后端同口径 fail-closed)
@@ -883,14 +884,25 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
+  // AI account owners: only the owner-scoped admin pages; the user dashboard and
+  // every other admin page land on their accounts list. Other user pages
+  // (profile, etc.) stay reachable.
+  if (authStore.isOwner) {
+    if (requiresAdmin ? !isOwnerAllowedAdminPath(to.path) : to.path === '/dashboard') {
+      next(OWNER_HOME_PATH)
+      return
+    }
+  }
+
   // Check admin requirement
-  if (requiresAdmin && !authStore.isAdmin) {
+  if (requiresAdmin && !authStore.isAdmin && !authStore.isOwner) {
     // User is authenticated but not admin, redirect to user dashboard
     next('/dashboard')
     return
   }
 
-  if (requiresAdmin && authStore.isAdmin) {
+  // Owners are subject to the same admin compliance acknowledgement gate.
+  if (requiresAdmin && (authStore.isAdmin || authStore.isOwner)) {
     const adminComplianceStore = useAdminComplianceStore()
     if (!adminComplianceStore.initialized) {
       try {
@@ -965,6 +977,11 @@ router.beforeEach(async (to, _from, next) => {
   // Backend mode: admin gets full access, non-admin blocked
   if (appStore.backendModeEnabled) {
     if (authStore.isAuthenticated && authStore.isAdmin) {
+      next()
+      return
+    }
+    // Owners keep their scoped admin pages (+ profile) in backend mode
+    if (authStore.isAuthenticated && authStore.isOwner && (requiresAdmin || to.path === '/profile')) {
       next()
       return
     }

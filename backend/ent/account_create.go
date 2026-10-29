@@ -139,6 +139,20 @@ func (_c *AccountCreate) SetNillableProxyFallbackOriginID(v *int64) *AccountCrea
 	return _c
 }
 
+// SetOwnerUserID sets the "owner_user_id" field.
+func (_c *AccountCreate) SetOwnerUserID(v int64) *AccountCreate {
+	_c.mutation.SetOwnerUserID(v)
+	return _c
+}
+
+// SetNillableOwnerUserID sets the "owner_user_id" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableOwnerUserID(v *int64) *AccountCreate {
+	if v != nil {
+		_c.SetOwnerUserID(*v)
+	}
+	return _c
+}
+
 // SetConcurrency sets the "concurrency" field.
 func (_c *AccountCreate) SetConcurrency(v int) *AccountCreate {
 	_c.mutation.SetConcurrency(v)
@@ -725,6 +739,10 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		_spec.SetField(account.FieldProxyFallbackOriginID, field.TypeInt64, value)
 		_node.ProxyFallbackOriginID = &value
 	}
+	if value, ok := _c.mutation.OwnerUserID(); ok {
+		_spec.SetField(account.FieldOwnerUserID, field.TypeInt64, value)
+		_node.OwnerUserID = &value
+	}
 	if value, ok := _c.mutation.Concurrency(); ok {
 		_spec.SetField(account.FieldConcurrency, field.TypeInt, value)
 		_node.Concurrency = value
@@ -1086,6 +1104,30 @@ func (u *AccountUpsert) AddProxyFallbackOriginID(v int64) *AccountUpsert {
 // ClearProxyFallbackOriginID clears the value of the "proxy_fallback_origin_id" field.
 func (u *AccountUpsert) ClearProxyFallbackOriginID() *AccountUpsert {
 	u.SetNull(account.FieldProxyFallbackOriginID)
+	return u
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (u *AccountUpsert) SetOwnerUserID(v int64) *AccountUpsert {
+	u.Set(account.FieldOwnerUserID, v)
+	return u
+}
+
+// UpdateOwnerUserID sets the "owner_user_id" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateOwnerUserID() *AccountUpsert {
+	u.SetExcluded(account.FieldOwnerUserID)
+	return u
+}
+
+// AddOwnerUserID adds v to the "owner_user_id" field.
+func (u *AccountUpsert) AddOwnerUserID(v int64) *AccountUpsert {
+	u.Add(account.FieldOwnerUserID, v)
+	return u
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (u *AccountUpsert) ClearOwnerUserID() *AccountUpsert {
+	u.SetNull(account.FieldOwnerUserID)
 	return u
 }
 
@@ -1648,6 +1690,34 @@ func (u *AccountUpsertOne) UpdateProxyFallbackOriginID() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearProxyFallbackOriginID() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearProxyFallbackOriginID()
+	})
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (u *AccountUpsertOne) SetOwnerUserID(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetOwnerUserID(v)
+	})
+}
+
+// AddOwnerUserID adds v to the "owner_user_id" field.
+func (u *AccountUpsertOne) AddOwnerUserID(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddOwnerUserID(v)
+	})
+}
+
+// UpdateOwnerUserID sets the "owner_user_id" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateOwnerUserID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateOwnerUserID()
+	})
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (u *AccountUpsertOne) ClearOwnerUserID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearOwnerUserID()
 	})
 }
 
@@ -2433,6 +2503,34 @@ func (u *AccountUpsertBulk) UpdateProxyFallbackOriginID() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearProxyFallbackOriginID() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearProxyFallbackOriginID()
+	})
+}
+
+// SetOwnerUserID sets the "owner_user_id" field.
+func (u *AccountUpsertBulk) SetOwnerUserID(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetOwnerUserID(v)
+	})
+}
+
+// AddOwnerUserID adds v to the "owner_user_id" field.
+func (u *AccountUpsertBulk) AddOwnerUserID(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddOwnerUserID(v)
+	})
+}
+
+// UpdateOwnerUserID sets the "owner_user_id" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateOwnerUserID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateOwnerUserID()
+	})
+}
+
+// ClearOwnerUserID clears the value of the "owner_user_id" field.
+func (u *AccountUpsertBulk) ClearOwnerUserID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearOwnerUserID()
 	})
 }
 

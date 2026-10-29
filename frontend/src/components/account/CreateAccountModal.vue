@@ -1198,8 +1198,8 @@
           />
           <p class="input-hint">{{ t('admin.accounts.upstream.apiKeyHint') }}</p>
         </div>
-        <!-- 上游倍率自动探测：antigravity upstream 也是 API-key 账号 -->
-        <div class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+        <!-- 上游倍率自动探测：antigravity upstream 也是 API-key 账号（上游计费为管理员专属） -->
+        <div v-if="!isOwner" class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600">
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -1562,8 +1562,9 @@
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
-        <!-- 上游倍率自动探测：全部 API-key 平台可用（所在区块已限定 apikey 类型） -->
+        <!-- 上游倍率自动探测：全部 API-key 平台可用（所在区块已限定 apikey 类型；上游计费为管理员专属） -->
         <div
+          v-if="!isOwner"
           class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
         >
           <div>
@@ -3262,7 +3263,8 @@
           />
           <p class="input-hint">{{ t('admin.accounts.priorityHint') }}</p>
         </div>
-        <div>
+        <!-- 倍率为管理员专属字段，所有者不可见 -->
+        <div v-if="!isOwner">
           <label class="input-label">{{ t('admin.accounts.billingRateMultiplier') }}</label>
           <input v-model.number="form.rate_multiplier" type="number" min="0" step="0.001" class="input" />
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
@@ -3773,14 +3775,14 @@
         :show-proxy-warning="form.platform !== 'openai' && form.platform !== 'grok' && !!form.proxy_id"
         :allow-multiple="form.platform === 'anthropic'"
         :show-cookie-option="form.platform === 'anthropic'"
-        :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity' || form.platform === 'grok'"
+        :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity' || (form.platform === 'grok' && !isOwner)"
         :show-mobile-refresh-token-option="form.platform === 'openai'"
         :show-session-token-option="false"
         :show-access-token-option="false"
-        :show-codex-session-import-option="form.platform === 'openai'"
-        :show-agent-identity-option="form.platform === 'openai'"
-        :show-codex-pat-option="form.platform === 'openai'"
-        :show-sso-option="form.platform === 'grok'"
+        :show-codex-session-import-option="form.platform === 'openai' && !isOwner"
+        :show-agent-identity-option="form.platform === 'openai' && !isOwner"
+        :show-codex-pat-option="form.platform === 'openai' && !isOwner"
+        :show-sso-option="form.platform === 'grok' && !isOwner"
         :show-email-password-option="false"
         :show-manual-option="true"
         :initial-input-method="'manual'"
@@ -4127,6 +4129,7 @@ import {
 } from '@/composables/useModelWhitelist'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
+import { useIsOwner } from '@/components/account/ownerAccess'
 import {
   useAccountOAuth,
   type AddMethod,
@@ -4235,6 +4238,8 @@ interface OAuthFlowExposed {
 
 const { t } = useI18n()
 const browserTimeZone = getBrowserTimeZone()
+// 所有者：settings/TLS 指纹/上游计费/模型同步/Codex 导入等接口为管理员专属，跳过请求并隐藏入口。
+const isOwner = useIsOwner()
 
 const oauthStepTitle = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
@@ -4740,11 +4745,13 @@ const {
 } = useQuotaNotifyState()
 
 // Load global feature states once
-adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
-  webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
-}).catch(() => { webSearchGlobalEnabled.value = false })
+if (!isOwner.value) {
+  adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
+    webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
+  }).catch(() => { webSearchGlobalEnabled.value = false })
 
-loadQuotaNotifyGlobal()
+  loadQuotaNotifyGlobal()
+}
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityAccountType = ref<'oauth' | 'upstream'>('oauth') // For antigravity: oauth or upstream
@@ -5082,10 +5089,12 @@ watch(
   () => props.show,
   (newVal) => {
     if (newVal) {
-      // Load TLS fingerprint profiles
-      adminAPI.tlsFingerprintProfiles.list()
-        .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
-        .catch(() => { tlsFingerprintProfiles.value = [] })
+      // Load TLS fingerprint profiles (admin-only endpoint)
+      if (!isOwner.value) {
+        adminAPI.tlsFingerprintProfiles.list()
+          .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
+          .catch(() => { tlsFingerprintProfiles.value = [] })
+      }
       // Modal opened - fill related models
       allowedModels.value = [...getModelsByPlatform(form.platform)]
       // Antigravity: 默认使用映射模式并填充默认映射
@@ -5578,6 +5587,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       }
     }
     if (
+      !isOwner.value &&
       payload.type === 'apikey' &&
       payload.upstream_billing_probe_enabled === true
     ) {

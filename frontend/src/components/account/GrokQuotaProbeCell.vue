@@ -45,6 +45,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { GrokQuotaProbeResult } from '@/api/admin/grok'
 import type { Account } from '@/types'
+import { useIsOwner } from './ownerAccess'
 
 const props = withDefaults(
   defineProps<{
@@ -59,7 +60,9 @@ const emit = defineEmits<{ probed: [result: GrokQuotaProbeResult] }>()
 
 const { t } = useI18n()
 
-const visible = computed(() => props.account.platform === 'grok' && props.account.type === 'oauth')
+// 所有者无 /grok/accounts/:id/quota 接口权限。
+const isOwner = useIsOwner()
+const visible = computed(() => props.account.platform === 'grok' && props.account.type === 'oauth' && !isOwner.value)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const data = ref<GrokQuotaProbeResult | null>(null)

@@ -81,11 +81,21 @@ func scopedAdminUsageLogResponse(record *service.UsageLog) gin.H {
 	}
 }
 
+// ownerHiddenUsageFields 是所有者不可见的用户身份字段（Q3）：只保留账户维度的用量与费用。
+var ownerHiddenUsageFields = []string{"user_id", "api_key_id", "subscription_id", "ip_address", "user_agent", "session_id"}
+
 func adminUsageLogResponses(c *gin.Context, records []service.UsageLog) any {
-	if adminaccess.FromContext(c.Request.Context()) != nil {
+	owner := adminaccess.OwnerFromContext(c.Request.Context()) != nil
+	if owner || adminaccess.FromContext(c.Request.Context()) != nil {
 		out := make([]gin.H, 0, len(records))
 		for i := range records {
-			out = append(out, scopedAdminUsageLogResponse(&records[i]))
+			item := scopedAdminUsageLogResponse(&records[i])
+			if owner {
+				for _, key := range ownerHiddenUsageFields {
+					delete(item, key)
+				}
+			}
+			out = append(out, item)
 		}
 		return out
 	}

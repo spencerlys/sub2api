@@ -49,7 +49,7 @@
         </template>
 
         <template #cell-account="{ row }">
-          <span class="text-sm text-gray-900 dark:text-white">{{ row.account?.name || '-' }}</span>
+          <span class="text-sm text-gray-900 dark:text-white">{{ row.account?.name || (showIdFallback && row.account_id ? `#${row.account_id}` : '-') }}</span>
         </template>
 
         <template #cell-model="{ row }">
@@ -120,6 +120,9 @@
         <template #cell-group="{ row }">
           <span v-if="row.group" class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
             {{ row.group.name }}
+          </span>
+          <span v-else-if="showIdFallback && row.group_id" class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+            #{{ row.group_id }}
           </span>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
@@ -601,6 +604,8 @@ interface Props {
   showUpstreamEndpoint?: boolean
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  /** 行内缺少嵌套 account/group 对象时(owner 视图)回退显示 #id */
+  showIdFallback?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -610,7 +615,8 @@ const props = withDefaults(defineProps<Props>(), {
   defaultSortOrder: 'asc',
   showAccountBilling: true,
   showUpstreamEndpoint: true,
-  flat: false
+  flat: false,
+  showIdFallback: false
 })
 const emit = defineEmits<{
   userClick: [userID: number, email?: string]

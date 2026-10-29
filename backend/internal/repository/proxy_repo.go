@@ -54,6 +54,8 @@ func (r *proxyRepository) Create(ctx context.Context, proxyIn *service.Proxy) er
 	if proxyIn.BackupProxyID != nil {
 		builder.SetBackupProxyID(*proxyIn.BackupProxyID)
 	}
+	// 归属只取自请求身份，不信任调用方传入的 OwnerUserID。
+	builder.SetNillableOwnerUserID(resourceOwnerID(ctx))
 
 	created, err := builder.Save(ctx)
 	if err == nil {
@@ -289,7 +291,7 @@ func (r *proxyRepository) List(ctx context.Context, params pagination.Pagination
 
 // ListWithFilters lists proxies with optional filtering by protocol, status, and search query
 func (r *proxyRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, protocol, status, search string) ([]service.Proxy, *pagination.PaginationResult, error) {
-	q := r.client.Proxy.Query()
+	q := r.client.Proxy.Query().Where(ownerProxyScope(ctx)...)
 	if protocol != "" {
 		q = q.Where(proxy.ProtocolEQ(protocol))
 	}
@@ -327,7 +329,7 @@ func (r *proxyRepository) ListWithFilters(ctx context.Context, params pagination
 
 // ListWithFiltersAndAccountCount lists proxies with filters and includes account count per proxy
 func (r *proxyRepository) ListWithFiltersAndAccountCount(ctx context.Context, params pagination.PaginationParams, protocol, status, search string) ([]service.ProxyWithAccountCount, *pagination.PaginationResult, error) {
-	q := r.client.Proxy.Query()
+	q := r.client.Proxy.Query().Where(ownerProxyScope(ctx)...)
 	if protocol != "" {
 		q = q.Where(proxy.ProtocolEQ(protocol))
 	}
@@ -443,6 +445,7 @@ func proxyListOrder(params pagination.PaginationParams) []func(*entsql.Selector)
 func (r *proxyRepository) ListActive(ctx context.Context) ([]service.Proxy, error) {
 	proxies, err := r.client.Proxy.Query().
 		Where(proxy.StatusEQ(service.StatusActive)).
+		Where(ownerProxyScope(ctx)...).
 		All(ctx)
 	if err != nil {
 		return nil, err
@@ -457,7 +460,8 @@ func (r *proxyRepository) ListActive(ctx context.Context) ([]service.Proxy, erro
 // ExistsByHostPortAuth checks if a proxy with the same host, port, username, and password exists
 func (r *proxyRepository) ExistsByHostPortAuth(ctx context.Context, host string, port int, username, password string) (bool, error) {
 	q := r.client.Proxy.Query().
-		Where(proxy.HostEQ(host), proxy.PortEQ(port))
+		Where(proxy.HostEQ(host), proxy.PortEQ(port)).
+		Where(ownerProxyScope(ctx)...)
 
 	if username == "" {
 		q = q.Where(proxy.Or(proxy.UsernameIsNil(), proxy.UsernameEQ("")))
@@ -556,6 +560,7 @@ func (r *proxyRepository) GetAccountCountsForProxies(ctx context.Context) (count
 func (r *proxyRepository) ListActiveWithAccountCount(ctx context.Context) ([]service.ProxyWithAccountCount, error) {
 	proxies, err := r.client.Proxy.Query().
 		Where(proxy.StatusEQ(service.StatusActive)).
+		Where(ownerProxyScope(ctx)...).
 		Order(dbent.Desc(proxy.FieldCreatedAt)).
 		All(ctx)
 	if err != nil {
@@ -601,6 +606,7 @@ func proxyEntityToService(m *dbent.Proxy) *service.Proxy {
 		FallbackMode:   m.FallbackMode,
 		BackupProxyID:  m.BackupProxyID,
 		ExpiryWarnDays: m.ExpiryWarnDays,
+		OwnerUserID:    m.OwnerUserID,
 	}
 	if m.Username != nil {
 		out.Username = *m.Username

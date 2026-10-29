@@ -112,6 +112,10 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 		conditions = append(conditions, fmt.Sprintf("account_id = $%d", len(args)+1))
 		args = append(args, filters.AccountID)
 	}
+	if filters.OwnerUserID > 0 {
+		conditions = append(conditions, fmt.Sprintf("account_id IN (SELECT id FROM accounts WHERE owner_user_id = $%d)", len(args)+1))
+		args = append(args, filters.OwnerUserID)
+	}
 	if filters.GroupID > 0 {
 		conditions = append(conditions, fmt.Sprintf("group_id = $%d", len(args)+1))
 		args = append(args, filters.GroupID)
@@ -173,7 +177,7 @@ func shouldUseFastUsageLogTotal(filters UsageLogFilters) bool {
 		return false
 	}
 	// 强选择过滤下记录集通常较小，保留精确总数。
-	return filters.UserID == 0 && filters.APIKeyID == 0 && filters.AccountID == 0
+	return filters.UserID == 0 && filters.APIKeyID == 0 && filters.AccountID == 0 && filters.OwnerUserID == 0
 }
 
 func (r *usageLogRepository) listUsageLogsWithPagination(ctx context.Context, whereClause string, args []any, params pagination.PaginationParams) ([]service.UsageLog, *pagination.PaginationResult, error) {

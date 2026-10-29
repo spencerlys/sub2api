@@ -96,6 +96,11 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value?.role === 'admin'
   })
 
+  // AI account owner: restricted admin-panel access (own accounts/groups/proxies/usage only)
+  const isOwner = computed(() => {
+    return user.value?.role === 'owner'
+  })
+
   const isSimpleMode = computed(() => runMode.value === 'simple')
   const hasPendingAuthSession = computed(() => pendingAuthSession.value !== null)
 
@@ -498,6 +503,7 @@ export const useAuthStore = defineStore('auth', () => {
     // Computed
     isAuthenticated,
     isAdmin,
+    isOwner,
     isSimpleMode,
     hasPendingAuthSession,
 

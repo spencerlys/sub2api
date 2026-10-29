@@ -212,10 +212,14 @@ func validateJWTForAdmin(
 		return false
 	}
 
-	// 检查管理员权限
+	// 检查管理员权限；AI 账号所有者沿用管理密钥的默认拒绝目录，仅放行显式登记的自有资源接口。
 	if !user.IsAdmin() {
-		AbortWithError(c, 403, "FORBIDDEN", "Admin access required")
-		return false
+		if !user.IsOwner() || !adminaccess.RouteAllowed(adminaccess.OwnerPolicy(), c.Request.Method, c.FullPath()) {
+			AbortWithError(c, 403, "FORBIDDEN", "Admin access required")
+			return false
+		}
+		principal := &adminaccess.Principal{OwnerUserID: user.ID, Policy: adminaccess.OwnerPolicy()}
+		c.Request = c.Request.WithContext(adminaccess.WithPrincipal(c.Request.Context(), principal))
 	}
 
 	c.Set(string(ContextKeyUser), AuthSubject{

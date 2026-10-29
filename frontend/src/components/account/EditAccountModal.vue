@@ -743,7 +743,7 @@
 
       <!-- Grok OAuth media generation eligibility override -->
       <div
-        v-if="isGrokOAuthAccount"
+        v-if="isGrokOAuthAccount && !isOwner"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
         data-testid="grok-media-eligibility-card"
       >
@@ -1956,7 +1956,8 @@
           />
           <p class="input-hint">{{ t('admin.accounts.priorityHint') }}</p>
         </div>
-        <div>
+        <!-- 倍率与上游倍率同步为管理员专属字段，所有者不可见 -->
+        <div v-if="!isOwner">
           <label class="input-label">{{ t('admin.accounts.billingRateMultiplier') }}</label>
           <input
             v-model.number="form.rate_multiplier"
@@ -2244,7 +2245,7 @@
       </div>
 
       <div
-        v-if="account?.type === 'apikey'"
+        v-if="account?.type === 'apikey' && !isOwner"
         class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div>
@@ -2262,13 +2263,13 @@
       </div>
 
       <OllamaCloudUsageSettings
-        v-if="account?.ollama_cloud_usage?.eligible"
+        v-if="account?.ollama_cloud_usage?.eligible && !isOwner"
         :account="account"
         @updated="handleOllamaCloudUsageUpdated"
       />
 
       <section
-        v-if="account?.opencode_go_usage?.eligible"
+        v-if="account?.opencode_go_usage?.eligible && !isOwner"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
         data-testid="opencode-go-usage-settings"
       >
@@ -3385,6 +3386,7 @@ import { useAppStore } from '@/stores/app'
 
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
+import { useIsOwner } from '@/components/account/ownerAccess'
 import type {
   Account,
   Proxy,
@@ -3507,6 +3509,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+// 所有者：settings/TLS 指纹/上游计费/模型同步/用量面板等接口为管理员专属，跳过请求并隐藏入口。
+const isOwner = useIsOwner()
 const browserTimeZone = getBrowserTimeZone()
 
 const selectableGroups = computed(() => {
@@ -3567,6 +3571,7 @@ const applyOpenCodeGoState = (next: OpenCodeGoUsageState) => {
 }
 
 const loadOpenCodeGoUsage = async () => {
+  if (isOwner.value) return
   opencodeGoLoading.value = true
   try {
     applyOpenCodeGoState(await adminAPI.accounts.getOpenCodeGoUsage(props.account!.id))
@@ -4047,7 +4052,7 @@ const modeFromGrokMediaExtra = (extra: Record<string, unknown> | undefined): Gro
 }
 
 const loadGrokMediaEligibility = async (accountID: number): Promise<GrokMediaEligibilityState | null> => {
-  if (!isGrokOAuthAccount.value || typeof adminAPI.accounts.getGrokMediaEligibility !== 'function') {
+  if (isOwner.value || !isGrokOAuthAccount.value || typeof adminAPI.accounts.getGrokMediaEligibility !== 'function') {
     return null
   }
   const requestVersion = ++grokMediaEligibilityRequestVersion
@@ -4178,11 +4183,13 @@ const {
 } = useQuotaNotifyState()
 
 // Load global feature states once
-adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
-  webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
-}).catch(() => { webSearchGlobalEnabled.value = false })
+if (!isOwner.value) {
+  adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
+    webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
+  }).catch(() => { webSearchGlobalEnabled.value = false })
 
-loadQuotaNotifyGlobal()
+  loadQuotaNotifyGlobal()
+}
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
@@ -5025,6 +5032,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 }
 
 async function loadTLSProfiles() {
+  if (isOwner.value) return
   try {
     const profiles = await adminAPI.tlsFingerprintProfiles.list()
     tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name }))

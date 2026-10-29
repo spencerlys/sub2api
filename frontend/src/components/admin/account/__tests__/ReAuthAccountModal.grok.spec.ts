@@ -8,10 +8,10 @@ const source = readFileSync(
 )
 
 describe('ReAuthAccountModal Grok re-auth paths', () => {
-  it('exposes SSO cookie and refresh-token options; password auth stays hidden', () => {
-    expect(source).toContain(':show-sso-option="isGrok"')
+  it('exposes SSO cookie and refresh-token options (not for owners); password auth stays hidden', () => {
+    expect(source).toContain(':show-sso-option="isGrok && !isOwner"')
     expect(source).toContain(':show-email-password-option="false"')
-    expect(source).toContain(':show-refresh-token-option="isOpenAI || isAntigravity || isGrok"')
+    expect(source).toContain(':show-refresh-token-option="isOpenAI || isAntigravity || (isGrok && !isOwner)"')
     expect(source).not.toContain('@authorize-password=')
   })
 

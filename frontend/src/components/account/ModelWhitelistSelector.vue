@@ -157,6 +157,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { allModels, getModelsByPlatform } from '@/composables/useModelWhitelist'
 import { supportsUpstreamModelSync } from '@/constants/platformCatalog'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { useIsOwner } from './ownerAccess'
 
 const { t } = useI18n()
 
@@ -220,12 +221,15 @@ const normalizedPlatforms = computed(() => {
   )
 })
 
+// 所有者只能调用单账号 /accounts/:id/models/sync-upstream，无 sync-upstream-preview 权限。
+const isOwner = useIsOwner()
 const canSyncUpstream = computed(() => {
   if (props.accountId) {
     if (normalizedPlatforms.value.length === 0) return true
     return normalizedPlatforms.value.some(supportsUpstreamModelSync)
   }
   if (props.syncCredentials) {
+    if (isOwner.value) return false
     return supportsUpstreamModelSync(props.syncCredentials.platform)
   }
   return false

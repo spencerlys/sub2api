@@ -96,6 +96,10 @@ vi.mock('@/stores/app', () => ({
   }),
 }))
 
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({ isOwner: false }),
+}))
+
 vi.mock('@/utils/format', () => ({
   formatReasoningEffort: (value: string | null | undefined) => value ?? '-',
 }))

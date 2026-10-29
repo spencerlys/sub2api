@@ -11,6 +11,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: { proxies: { list: listProxies, getAllWithCount } }
 }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError: vi.fn() }) }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isOwner: false }) }))
 vi.mock('vue-i18n', async () => ({
   ...await vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
   useI18n: () => ({ t: (key: string) => key })

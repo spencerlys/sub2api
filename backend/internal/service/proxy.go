@@ -28,6 +28,8 @@ type Proxy struct {
 	FallbackMode   string
 	BackupProxyID  *int64
 	ExpiryWarnDays int
+	// OwnerUserID AI 账号所有者；nil 表示管理员所有。
+	OwnerUserID *int64
 }
 
 func (p *Proxy) IsActive() bool {

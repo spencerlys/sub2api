@@ -273,8 +273,10 @@ type UsageLogFilters struct {
 	APIKeyID  int64
 	AccountID int64
 	GroupID   int64
-	RequestID string
-	Model     string
+	// OwnerUserID 非零时只统计该 AI 账号所有者名下账户的用量。
+	OwnerUserID int64
+	RequestID   string
+	Model       string
 	// ModelFilterSource controls how Model is matched. Empty preserves raw usage_logs.model semantics.
 	ModelFilterSource     string
 	RequestType           *int16

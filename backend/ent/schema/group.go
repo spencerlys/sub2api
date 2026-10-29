@@ -215,6 +215,10 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("无效请求兜底使用的分组 ID"),
+		field.Int64("owner_user_id").
+			Optional().
+			Nillable().
+			Comment("AI 账号所有者用户 ID；NULL 表示管理员所有（含存量数据）"),
 
 		// 模型路由配置 (added by migration 040)
 		field.JSON("model_routing", map[string][]int64{}).
@@ -344,5 +348,6 @@ func (Group) Indexes() []ent.Index {
 			Unique().
 			StorageKey("idx_groups_duplicate_operation_id_active").
 			Annotations(entsql.IndexWhere("duplicate_operation_id IS NOT NULL AND deleted_at IS NULL")),
+		index.Fields("owner_user_id"),
 	}
 }
