@@ -3576,6 +3576,10 @@ func (s *oauthPendingFlowTotpCacheStub) ClearVerifyAttempts(_ context.Context, u
 	return nil
 }
 
+func (s *oauthPendingFlowTotpCacheStub) MarkCodeUsed(_ context.Context, _ int64, _ string, _ time.Duration) (bool, error) {
+	return true, nil
+}
+
 func (s *oauthPendingFlowTotpCacheStub) SetStepUpGrant(_ context.Context, _ int64, _ string, _ time.Duration) error {
 	return nil
 }

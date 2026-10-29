@@ -312,12 +312,7 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 	// Get the login session
 	session, err := h.totpService.GetLoginSession(c.Request.Context(), req.TempToken)
 	if err != nil || session == nil {
-		tokenPrefix := ""
-		if len(req.TempToken) >= 8 {
-			tokenPrefix = req.TempToken[:8]
-		}
 		slog.Debug("login_2fa_session_invalid",
-			"temp_token_prefix", tokenPrefix,
 			"error", err)
 		response.BadRequest(c, "Invalid or expired 2FA session")
 		return
@@ -726,12 +721,12 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	// 允许空请求体（向后兼容）
 	_ = c.ShouldBindJSON(&req)
 
-	// 如果提供了Refresh Token，撤销它
-	if req.RefreshToken != "" {
-		if err := h.authService.RevokeRefreshToken(c.Request.Context(), req.RefreshToken); err != nil {
-			slog.Debug("failed to revoke refresh token", "error", err)
-			// 不影响登出流程
-		}
+	// 撤销当前会话：refresh token 所属会话家族 + 该会话（sid）的 access token。
+	// 会话由 body 中的 refresh token 或 Authorization 中经验签的 access token 确定；
+	// 两者都未提供时无法定位会话，"撤销所有会话"仍是兜底手段。
+	if err := h.authService.RevokeLogoutSession(c.Request.Context(), req.RefreshToken, bearerTokenFromRequest(c)); err != nil {
+		slog.Debug("failed to revoke logout session", "error", err)
+		// 不影响登出流程
 	}
 	h.consumePendingOAuthSessionOnLogout(c)
 	clearOAuthLogoutCookies(c)
@@ -764,4 +759,13 @@ func (h *AuthHandler) RevokeAllSessions(c *gin.Context) {
 	response.Success(c, RevokeAllSessionsResponse{
 		Message: "All sessions have been revoked. Please log in again.",
 	})
+}
+
+// bearerTokenFromRequest 提取 Authorization: Bearer 中的 token（不存在时返回空串）。
+func bearerTokenFromRequest(c *gin.Context) string {
+	parts := strings.SplitN(c.GetHeader("Authorization"), " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
 }

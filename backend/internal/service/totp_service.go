@@ -42,6 +42,10 @@ type TotpCache interface {
 	GetVerifyAttempts(ctx context.Context, userID int64) (int, error)
 	ClearVerifyAttempts(ctx context.Context, userID int64) error
 
+	// Replay protection: atomically marks a verified code as used (SETNX semantics).
+	// Returns true only for the first use of the code within ttl.
+	MarkCodeUsed(ctx context.Context, userID int64, code string, ttl time.Duration) (bool, error)
+
 	// Step-up grant methods (敏感操作 sudo 窗口)
 	SetStepUpGrant(ctx context.Context, userID int64, sessionKey string, ttl time.Duration) error
 	HasStepUpGrant(ctx context.Context, userID int64, sessionKey string) (bool, error)
@@ -93,6 +97,9 @@ const (
 	totpLoginTTL    = 5 * time.Minute
 	totpAttemptsTTL = 15 * time.Minute
 	maxTotpAttempts = 5
+	// totpUsedCodeTTL covers the full acceptance window of a code: totp.Validate
+	// uses Skew=1, so a code is accepted across 3 consecutive 30s periods.
+	totpUsedCodeTTL = 90 * time.Second
 	totpIssuer      = "Sub2API"
 )
 
@@ -249,14 +256,9 @@ func (s *TotpService) CompleteSetup(ctx context.Context, userID int64, totpCode,
 		return ErrTotpInvalidCode
 	}
 
-	setupSecretPrefix := "N/A"
-	if len(session.Secret) >= 4 {
-		setupSecretPrefix = session.Secret[:4]
-	}
 	slog.Debug("totp_complete_setup_before_encrypt",
 		"user_id", userID,
-		"secret_len", len(session.Secret),
-		"secret_prefix", setupSecretPrefix)
+		"secret_len", len(session.Secret))
 
 	// Encrypt the secret
 	encryptedSecret, err := s.encryptor.Encrypt(session.Secret)
@@ -275,16 +277,11 @@ func (s *TotpService) CompleteSetup(ctx context.Context, userID int64, totpCode,
 			"user_id", userID,
 			"error", decErr)
 	} else {
-		decryptedPrefix := "N/A"
-		if len(decrypted) >= 4 {
-			decryptedPrefix = decrypted[:4]
-		}
 		slog.Debug("totp_complete_setup_verified",
 			"user_id", userID,
 			"original_len", len(session.Secret),
 			"decrypted_len", len(decrypted),
-			"match", session.Secret == decrypted,
-			"decrypted_prefix", decryptedPrefix)
+			"match", session.Secret == decrypted)
 	}
 
 	// Update user with encrypted TOTP secret
@@ -334,9 +331,19 @@ func (s *TotpService) VerifyCode(ctx context.Context, userID int64, code string)
 		"user_id", userID,
 		"code_len", len(code))
 
-	// Check rate limiting
-	attempts, err := s.cache.GetVerifyAttempts(ctx, userID)
-	if err == nil && attempts >= maxTotpAttempts {
+	// Reserve an attempt atomically before evaluating the code (same pattern as
+	// verifyCodeWithAttempts), so concurrent guesses can never evaluate more than
+	// maxTotpAttempts codes. Fail closed when the counter is unavailable.
+	// The cheap pre-check keeps an already-locked user from extending the lock window.
+	if attempts, err := s.cache.GetVerifyAttempts(ctx, userID); err == nil && attempts >= maxTotpAttempts {
+		return ErrTotpTooManyAttempts
+	}
+	attempts, err := s.cache.IncrementVerifyAttempts(ctx, userID)
+	if err != nil {
+		slog.Warn("totp_verify_attempts_unavailable", "user_id", userID, "error", err)
+		return infraerrors.ServiceUnavailable("TOTP_VERIFY_UNAVAILABLE", "totp verification temporarily unavailable")
+	}
+	if attempts > maxTotpAttempts {
 		return ErrTotpTooManyAttempts
 	}
 
@@ -370,27 +377,26 @@ func (s *TotpService) VerifyCode(ctx context.Context, userID int64, code string)
 		return infraerrors.InternalServer("TOTP_VERIFY_ERROR", "failed to verify totp code")
 	}
 
-	secretPrefix := "N/A"
-	if len(secret) >= 4 {
-		secretPrefix = secret[:4]
-	}
-	slog.Debug("totp_verify_decrypted",
-		"user_id", userID,
-		"secret_len", len(secret),
-		"secret_prefix", secretPrefix)
-
 	// Verify the code
 	valid := totp.Validate(code, secret)
 	slog.Debug("totp_verify_result",
 		"user_id", userID,
 		"valid", valid,
 		"secret_len", len(secret),
-		"secret_prefix", secretPrefix,
 		"server_time", time.Now().UTC().Format(time.RFC3339))
 
 	if !valid {
-		// Increment failed attempts
-		_, _ = s.cache.IncrementVerifyAttempts(ctx, userID)
+		// The attempt was already counted above.
+		return ErrTotpInvalidCode
+	}
+
+	// Reject replay of a code that was already accepted within its validity window.
+	firstUse, err := s.cache.MarkCodeUsed(ctx, userID, code, totpUsedCodeTTL)
+	if err != nil {
+		slog.Warn("totp_verify_replay_guard_unavailable", "user_id", userID, "error", err)
+		return infraerrors.ServiceUnavailable("TOTP_VERIFY_UNAVAILABLE", "totp verification temporarily unavailable")
+	}
+	if !firstUse {
 		return ErrTotpInvalidCode
 	}
 

@@ -471,10 +471,17 @@ func (s *AuthService) ValidatePasswordCredentials(ctx context.Context, email, pa
 		return nil, ErrServiceUnavailable
 	}
 
+	// 与 Login 共用账号维度失败锁定，避免绕过登录接口暴力猜测密码
+	failureKey := loginFailureKey(ctx, email)
+	if err := s.checkLoginLocked(ctx, failureKey); err != nil {
+		return nil, err
+	}
+
 	user, err := s.userRepo.GetByEmail(ctx, strings.TrimSpace(strings.ToLower(email)))
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			return nil, ErrInvalidCredentials
+			dummyPasswordCheck(password)
+			return nil, s.recordLoginFailure(ctx, failureKey)
 		}
 		return nil, ErrServiceUnavailable
 	}
@@ -482,8 +489,9 @@ func (s *AuthService) ValidatePasswordCredentials(ctx context.Context, email, pa
 		return nil, ErrUserNotActive
 	}
 	if !s.CheckPassword(password, user.PasswordHash) {
-		return nil, ErrInvalidCredentials
+		return nil, s.recordLoginFailure(ctx, failureKey)
 	}
+	s.clearLoginFailures(ctx, failureKey)
 	return user, nil
 }
 

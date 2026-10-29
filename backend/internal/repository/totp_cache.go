@@ -16,6 +16,7 @@ const (
 	totpLoginKeyPrefix    = "totp:login:"
 	totpAttemptsKeyPrefix = "totp:attempts:"
 	totpStepUpKeyPrefix   = "totp:stepup:"
+	totpUsedCodeKeyPrefix = "totp:used:"
 	totpAttemptsTTL       = 15 * time.Minute
 )
 
@@ -147,6 +148,16 @@ func (c *TotpCache) GetVerifyAttempts(ctx context.Context, userID int64) (int, e
 func (c *TotpCache) ClearVerifyAttempts(ctx context.Context, userID int64) error {
 	key := fmt.Sprintf("%s%d", totpAttemptsKeyPrefix, userID)
 	return c.rdb.Del(ctx, key).Err()
+}
+
+// MarkCodeUsed 原子标记验证码已使用（SETNX），首次使用返回 true，用于防止验证码在有效窗口内被重放。
+func (c *TotpCache) MarkCodeUsed(ctx context.Context, userID int64, code string, ttl time.Duration) (bool, error) {
+	key := fmt.Sprintf("%s%d:%s", totpUsedCodeKeyPrefix, userID, code)
+	ok, err := c.rdb.SetNX(ctx, key, "1", ttl).Result()
+	if err != nil {
+		return false, fmt.Errorf("mark totp code used: %w", err)
+	}
+	return ok, nil
 }
 
 func totpStepUpKey(userID int64, sessionKey string) string {

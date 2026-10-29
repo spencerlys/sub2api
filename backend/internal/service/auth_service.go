@@ -86,6 +86,7 @@ type AuthService struct {
 	affiliateService      *AffiliateService
 	defaultSubAssigner    DefaultSubscriptionAssigner
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	authGuardCache        AuthGuardCache
 }
 
 type CaptchaProof struct {
@@ -533,11 +534,19 @@ func (s *AuthService) IsEmailVerifyEnabled(ctx context.Context) bool {
 
 // Login 用户登录，返回JWT token
 func (s *AuthService) Login(ctx context.Context, email, password string) (string, *User, error) {
+	// 登录失败锁定（按规范化邮箱 + 客户端 IP 计数，不区分账号是否存在）
+	failureKey := loginFailureKey(ctx, email)
+	if err := s.checkLoginLocked(ctx, failureKey); err != nil {
+		return "", nil, err
+	}
+
 	// 查找用户
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
-			return "", nil, ErrInvalidCredentials
+			// 用户不存在时同样执行一次 bcrypt，避免响应时间暴露邮箱是否存在
+			dummyPasswordCheck(password)
+			return "", nil, s.recordLoginFailure(ctx, failureKey)
 		}
 		// 记录数据库错误但不暴露给用户
 		logger.LegacyPrintf("service.auth", "[Auth] Database error during login: %v", err)
@@ -546,8 +555,9 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 
 	// 验证密码
 	if !s.CheckPassword(password, user.PasswordHash) {
-		return "", nil, ErrInvalidCredentials
+		return "", nil, s.recordLoginFailure(ctx, failureKey)
 	}
+	s.clearLoginFailures(ctx, failureKey)
 
 	// 检查用户状态
 	if !user.IsActive() {
@@ -1502,6 +1512,9 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 	if claims.TokenVersion != resolvedTokenVersion(user) {
 		return "", ErrTokenRevoked
 	}
+	if err := s.CheckAccessTokenRevoked(ctx, claims); err != nil {
+		return "", err
+	}
 
 	// 会话绑定检查：指纹变化的旧 token 不允许换发新 token。
 	if s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) && claims.BindingHash != "" {
@@ -1893,6 +1906,7 @@ func (s *AuthService) RevokeAllUserSessions(ctx context.Context, userID int64) e
 }
 
 // RevokeAllUserTokens invalidates both stateless access tokens and refresh sessions.
+// access token 通过用户级撤销标记（AuthGuardCache）失效，写入失败时返回错误（fail-close）。
 //
 // 注意：users 表没有 token_version 列（resolvedTokenVersion 由 email+password_hash
 // 指纹推导），因此对 user.TokenVersion 自增只影响内存副本。之前紧跟其后的整行
@@ -1902,6 +1916,10 @@ func (s *AuthService) RevokeAllUserSessions(ctx context.Context, userID int64) e
 func (s *AuthService) RevokeAllUserTokens(ctx context.Context, userID int64) error {
 	if _, err := s.userRepo.GetByID(ctx, userID); err != nil {
 		return fmt.Errorf("get user: %w", err)
+	}
+
+	if err := s.revokeAllAccessTokens(ctx, userID); err != nil {
+		return fmt.Errorf("revoke access tokens: %w", err)
 	}
 
 	if err := s.RevokeAllUserSessions(ctx, userID); err != nil {
