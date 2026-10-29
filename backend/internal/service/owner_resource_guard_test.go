@@ -34,6 +34,42 @@ func (r *ownerGuardAccountRepo) ListShadowsByParent(context.Context, int64) ([]*
 	return nil, nil
 }
 
+func (r *ownerGuardAccountRepo) Delete(_ context.Context, id int64) error {
+	delete(r.accounts, id)
+	return nil
+}
+
+// 管理员把所有者账户加入共享分组 3 后，所有者不能自行撤出或删除账户；本人分组照常增减。
+func TestOwnerCannotWithdrawFromSharedGroup(t *testing.T) {
+	const accountID = int64(61)
+	newAccount := func(groupIDs ...int64) *Account {
+		return &Account{
+			ID: accountID, Name: "a", Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Status: StatusActive,
+			OwnerUserID: int64Ptr(7), GroupIDs: groupIDs, Credentials: map[string]any{"api_key": "sk"},
+		}
+	}
+	owner := ownerGuardContext(7)
+
+	svc, repo := newOwnerGuardService(map[int64]*Account{accountID: newAccount(1, 3)})
+	_, err := svc.UpdateAccount(owner, accountID, &UpdateAccountInput{GroupIDs: &[]int64{1}})
+	require.ErrorIs(t, err, ErrOwnerSharedGroupManaged)
+	_, err = svc.UpdateAccount(owner, accountID, &UpdateAccountInput{GroupIDs: &[]int64{}})
+	require.ErrorIs(t, err, ErrOwnerSharedGroupManaged)
+	require.ErrorIs(t, svc.DeleteAccount(owner, accountID), ErrOwnerSharedGroupManaged)
+	require.Contains(t, repo.accounts, accountID)
+	// 保留共享分组时可退出本人分组；本人分组与已删除分组（404）可自由撤出；管理员不受限。
+	require.NoError(t, svc.ensureOwnerKeepsSharedGroups(owner, []int64{1, 3}, []int64{3}))
+	require.NoError(t, svc.ensureOwnerKeepsSharedGroups(owner, []int64{1, 404}, nil))
+	require.NoError(t, svc.ensureOwnerKeepsSharedGroups(context.Background(), []int64{1, 3}, nil))
+	// 其他所有者的分组同样不能撤出。
+	require.ErrorIs(t, svc.ensureOwnerKeepsSharedGroups(owner, []int64{2}, nil), ErrOwnerSharedGroupManaged)
+
+	// 管理员移出共享分组后，所有者可删除账户。
+	repo.accounts[accountID].GroupIDs = []int64{1}
+	require.NoError(t, svc.DeleteAccount(owner, accountID))
+	require.NotContains(t, repo.accounts, accountID)
+}
+
 // 7 号所有者拥有分组 1、代理 1；分组/代理 2 属于其他所有者，3 为管理员资源。
 func newOwnerGuardService(accounts map[int64]*Account) (*adminServiceImpl, *ownerGuardAccountRepo) {
 	repo := &ownerGuardAccountRepo{

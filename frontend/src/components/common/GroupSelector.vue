@@ -27,13 +27,17 @@
       <label
         v-for="group in filteredGroups"
         :key="group.id"
-        class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-white dark:hover:bg-dark-700"
-        :title="group.rate_multiplier == null ? group.name : t('admin.groups.rateAndAccounts', { rate: group.rate_multiplier, count: group.account_count || 0 })"
+        :class="[
+          'flex items-center gap-2 rounded px-2 py-1.5 transition-colors',
+          isLocked(group.id) ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-white dark:hover:bg-dark-700'
+        ]"
+        :title="isLocked(group.id) ? t('admin.accounts.groupManagedByAdmin') : group.rate_multiplier == null ? group.name : t('admin.groups.rateAndAccounts', { rate: group.rate_multiplier, count: group.account_count || 0 })"
       >
         <input
           type="checkbox"
           :value="group.id"
           :checked="modelValue.includes(group.id)"
+          :disabled="isLocked(group.id)"
           @change="handleChange(group.id, ($event.target as HTMLInputElement).checked)"
           class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
         />
@@ -44,7 +48,8 @@
           :rate-multiplier="group.rate_multiplier == null ? undefined : group.rate_multiplier"
           class="min-w-0 flex-1"
         />
-        <span class="shrink-0 text-xs text-gray-400">{{ group.account_count || 0 }}</span>
+        <span v-if="isLocked(group.id)" class="shrink-0 text-xs text-gray-400">{{ t('admin.accounts.groupManagedByAdmin') }}</span>
+        <span v-else class="shrink-0 text-xs text-gray-400">{{ group.account_count || 0 }}</span>
       </label>
       <div
         v-if="filteredGroups.length === 0"
@@ -73,10 +78,13 @@ interface Props {
   platform?: GroupPlatform // Optional platform filter
   mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
   searchable?: boolean | 'auto'
+  // Selected groups the user cannot untick (an owner's account in an admin's shared group).
+  lockedIds?: number[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  searchable: 'auto'
+  searchable: 'auto',
+  lockedIds: () => []
 })
 const emit = defineEmits<{
   'update:modelValue': [value: number[]]
@@ -125,7 +133,10 @@ watch(
   { immediate: true, deep: true }
 )
 
+const isLocked = (groupId: number) => props.lockedIds.includes(groupId)
+
 const handleChange = (groupId: number, checked: boolean) => {
+  if (isLocked(groupId)) return
   const newValue = checked
     ? [...props.modelValue, groupId]
     : props.modelValue.filter((id) => id !== groupId)

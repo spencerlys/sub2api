@@ -897,6 +897,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err := s.ensureOwnerReferences(ctx, OwnerResourceGroup, *input.GroupIDs, previousGroupIDs...); err != nil {
 			return nil, err
 		}
+		if err := s.ensureOwnerKeepsSharedGroups(ctx, previousGroupIDs, *input.GroupIDs); err != nil {
+			return nil, err
+		}
 	}
 	if input.ProxyID != nil && account.ProxyID != nil {
 		var unchanged []int64
@@ -1356,6 +1359,20 @@ func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
 	shadows, err := s.accountRepo.ListShadowsByParent(ctx, id)
 	if err != nil {
 		return fmt.Errorf("list spark shadows for cascade delete: %w", err)
+	}
+	// 所有者删除账户等同把它撤出全部分组：仍在管理员共享分组里时须先由管理员移出。
+	if adminaccess.OwnerUserID(ctx) > 0 {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		groupIDs := append([]int64(nil), account.GroupIDs...)
+		for _, shadow := range shadows {
+			groupIDs = append(groupIDs, shadow.GroupIDs...)
+		}
+		if err := s.ensureOwnerKeepsSharedGroups(ctx, groupIDs, nil); err != nil {
+			return err
+		}
 	}
 	for _, shadow := range shadows {
 		if err := s.accountRepo.Delete(ctx, shadow.ID); err != nil {

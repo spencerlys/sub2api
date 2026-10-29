@@ -41,3 +41,24 @@ describe('GroupSelector simple-mode binding policy', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[[1]]])
   })
 })
+
+describe('GroupSelector locked groups', () => {
+  beforeEach(() => { authState.isSimpleMode = false })
+
+  it('keeps a locked group selected and labels it as admin-managed', async () => {
+    const wrapper = mount(GroupSelector, {
+      props: { modelValue: [1], groups: [groups[0], { id: 3, name: 'Shared', platform: 'anthropic', status: 'active' }], lockedIds: [3] },
+      global: { stubs: { GroupBadge: { props: ['name'], template: '<span>{{ name }}</span>' }, Icon: true } }
+    })
+    await wrapper.setProps({ modelValue: [1, 3] })
+    const boxes = wrapper.findAll('input[type="checkbox"]')
+    expect(boxes[1].attributes('disabled')).toBeDefined()
+    expect(boxes[0].attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).toContain('admin.accounts.groupManagedByAdmin')
+
+    await boxes[1].setValue(false)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await boxes[0].setValue(false)
+    expect(wrapper.emitted('update:modelValue')).toEqual([[[3]]])
+  })
+})

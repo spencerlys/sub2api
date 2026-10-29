@@ -27,6 +27,7 @@ var (
 	ErrOwnerResourceLookup        = infraerrors.InternalServer("OWNER_RESOURCE_LOOKUP_UNAVAILABLE", "resource owner lookup unavailable")
 	ErrOwnerOutboundHostForbidden = infraerrors.BadRequest("OWNER_OUTBOUND_HOST_FORBIDDEN", "地址不能指向内网、回环、链路本地或无法解析的主机")
 	ErrOwnerBillingProbeManaged   = infraerrors.Forbidden("OWNER_BILLING_PROBE_MANAGED", "上游计费探测由管理员维护，不能改变账户类型使其失效")
+	ErrOwnerSharedGroupManaged    = infraerrors.Forbidden("OWNER_SHARED_GROUP_MANAGED", "该账号已被管理员加入共享分组，请联系管理员移出后再操作")
 )
 
 // ResourceOwnerReader 批量读取资源归属（id → owner_user_id，nil 为管理员所有）。
@@ -68,6 +69,35 @@ func (s *adminServiceImpl) ensureOwnerReferences(ctx context.Context, kind strin
 	for _, id := range check {
 		if owner := owners[id]; owner == nil || *owner != ownerID {
 			return ErrOwnerResourceNotFound
+		}
+	}
+	return nil
+}
+
+// ensureOwnerKeepsSharedGroups 拒绝所有者把账户移出不属于自己的分组（管理员加入的共享池）：
+// 撤出会让其他所有者的账户突然承接这部分流量，须由管理员操作。remaining 为 nil 表示删除账户。
+// 已删除的分组不在归属结果中，不阻止。管理员与管理密钥直接放行。
+func (s *adminServiceImpl) ensureOwnerKeepsSharedGroups(ctx context.Context, previous, remaining []int64) error {
+	ownerID := adminaccess.OwnerUserID(ctx)
+	if ownerID <= 0 {
+		return nil
+	}
+	var removed []int64
+	for _, id := range normalizeInt64IDs(previous) {
+		if !slices.Contains(remaining, id) {
+			removed = append(removed, id)
+		}
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	owners, err := s.ResourceOwnerIDs(ctx, OwnerResourceGroup, removed)
+	if err != nil {
+		return err
+	}
+	for _, id := range removed {
+		if owner, exists := owners[id]; exists && (owner == nil || *owner != ownerID) {
+			return ErrOwnerSharedGroupManaged
 		}
 	}
 	return nil

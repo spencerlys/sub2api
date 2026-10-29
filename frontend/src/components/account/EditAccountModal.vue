@@ -3323,6 +3323,7 @@
         :groups="selectableGroups"
         :platform="account?.platform"
         :mixed-scheduling="mixedScheduling"
+        :locked-ids="ownerLockedGroupIds"
         data-tour="account-form-groups"
       />
 
@@ -3522,6 +3523,13 @@ const selectableGroups = computed(() => {
     }
   }
   return Array.from(groups.values())
+})
+
+// 所有者：管理员把账号加入的共享分组只能由管理员移出（后端同样拒绝），表单里锁定为已选。
+const ownerLockedGroupIds = computed(() => {
+  if (!isOwner.value) return []
+  const own = new Set(props.groups.map(group => group.id))
+  return (props.account?.group_ids ?? []).filter(id => !own.has(id))
 })
 
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
