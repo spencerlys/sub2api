@@ -201,7 +201,9 @@ export function useOnboardingTour(options: OnboardingOptions) {
           // 1.5 交互式步骤提示
           const currentStep = steps[state.activeIndex ?? 0]
 
-          if (currentStep && isInteractiveStep(currentStep) && popover.description) {
+          // Manually advanced steps continue only after business code succeeds, so
+          // "Press Enter or Click to continue" would be wrong there.
+          if (currentStep && isInteractiveStep(currentStep) && !isManualAdvanceStep(currentStep) && popover.description) {
             const hintClass = 'driver-popover-description-hint'
             if (!popover.description.querySelector(`.${hintClass}`)) {
               const hint = document.createElement('div')
@@ -282,9 +284,6 @@ export function useOnboardingTour(options: OnboardingOptions) {
              } else {
                activeNextBtn.classList.remove(CLASS_DONE_BTN)
              }
-             // Steps advanced by business code (e.g. once an account is created) can't
-             // be skipped with Next, so don't show a button that does nothing.
-             ;(activeNextBtn as HTMLElement).style.display = isManualAdvanceStep(state.activeStep) ? 'none' : ''
           }
         } catch (e) {
           console.error('Onboarding Tour Render Error:', e)

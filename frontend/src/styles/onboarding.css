@@ -236,6 +236,12 @@
   right: auto !important;
   left: 16px !important;
   bottom: 16px !important;
-  max-width: min(300px, calc(100vw - 32px)) !important;
+  max-width: min(280px, calc(100vw - 32px)) !important;
 }
 .driver-popover.tour-popover-docked .driver-popover-arrow { display: none !important; }
+/* The docked step is advanced by business code: Back/Next would do nothing useful
+   (driver's inline display:none loses to the button rule above), and the
+   keyboard hints would overflow the narrow footer. */
+.driver-popover.tour-popover-docked .driver-popover-prev-btn,
+.driver-popover.tour-popover-docked .driver-popover-next-btn,
+.driver-popover.tour-popover-docked .footer-shortcuts { display: none !important; }
