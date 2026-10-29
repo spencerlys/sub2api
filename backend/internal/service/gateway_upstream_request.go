@@ -681,6 +681,9 @@ func policyPassBetas(clientBeta string, longContextRequested bool, passSet map[s
 //   - OAuth 透传 + 客户端未传 anthropic-beta：补齐 CountTokensBetaHeader
 //   - OAuth 透传 + 客户端传了：补齐 BetaTokenCounting（如果未含）
 //
+// passBetas 与 computeFinalAnthropicBeta 同源（policyPassBetas）：各路径补齐缺失项，
+// effectiveDropSet 仍优先，使 count_tokens 与 /v1/messages 对 [1m] / 显式 pass 的结果一致。
+//
 // 返回语义同 computeFinalAnthropicBeta。
 func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
 	tokenType string,
@@ -689,6 +692,7 @@ func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
 	clientHeaders http.Header,
 	body []byte,
 	effectiveDropSet map[string]struct{},
+	passBetas []string,
 ) (beta string, shouldSet bool) {
 	defer func() { beta = filterSonnet55ToolsetBeta(beta, body, modelID) }()
 	clientBeta := ""
@@ -703,28 +707,31 @@ func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
 			// incomingBeta = req.Header[anthropic-beta] = 客户端透传过来的 client beta。
 			// 重构后直接从 clientHeaders 拿同一个值，保持行为一致。
 			requiredBetas := append(claude.FullClaudeCodeMimicryBetas(), claude.BetaTokenCounting)
-			return mergeAnthropicBetaDropping(requiredBetas, clientBeta, effectiveDropSet), true
+			return appendBetaTokensDropping(mergeAnthropicBetaDropping(requiredBetas, clientBeta, effectiveDropSet), passBetas, effectiveDropSet), true
 		}
 		if clientBeta == "" {
-			return claude.CountTokensBetaHeader, true
+			return appendBetaTokensDropping(claude.CountTokensBetaHeader, passBetas, effectiveDropSet), true
 		}
 		beta := s.getBetaHeader(modelID, clientBeta)
 		if !strings.Contains(beta, claude.BetaTokenCounting) {
 			beta = beta + "," + claude.BetaTokenCounting
 		}
-		return stripBetaTokensWithSet(beta, effectiveDropSet), true
+		return appendBetaTokensDropping(stripBetaTokensWithSet(beta, effectiveDropSet), passBetas, effectiveDropSet), true
 	}
 
 	// API-key accounts
 	if clientBeta != "" {
-		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
+		return appendBetaTokensDropping(stripBetaTokensWithSet(clientBeta, effectiveDropSet), passBetas, effectiveDropSet), true
 	}
 	if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
 		if requestNeedsBetaFeatures(body) {
 			if beta := defaultAPIKeyBetaHeader(body); beta != "" {
-				return beta, true
+				return appendBetaTokensDropping(beta, passBetas, effectiveDropSet), true
 			}
 		}
+	}
+	if beta := appendBetaTokensDropping("", passBetas, effectiveDropSet); beta != "" {
+		return beta, true
 	}
 	return "", false
 }
@@ -842,20 +849,14 @@ const betaPolicyFilterSetKey = "betaPolicyFilterSet"
 // betaPolicyPassSetKey caches betaPolicyResult.passSet next to betaPolicyFilterSetKey.
 const betaPolicyPassSetKey = "betaPolicyPassSet"
 
-// longContextRequestedKey caches ParsedRequest.LongContextRequested for buildUpstreamRequest.
+// longContextRequestedKey caches ParsedRequest.LongContextRequested for buildUpstreamRequest
+// and buildCountTokensRequest.
 const longContextRequestedKey = "longContextRequested"
 
-// getBetaPolicyFilterSet returns the beta policy filter set, using the gin context cache if available.
-// In the /v1/messages path, Forward() evaluates the policy first and caches the result;
-// buildUpstreamRequest reuses it (zero extra DB calls). In the count_tokens path, this
-// evaluates on demand (one DB call).
-func (s *GatewayService) getBetaPolicyFilterSet(ctx context.Context, c *gin.Context, account *Account, model string) map[string]struct{} {
-	filterSet, _ := s.getBetaPolicySets(ctx, c, account, model)
-	return filterSet
-}
-
-// getBetaPolicySets is getBetaPolicyFilterSet that also returns the explicit pass set
-// (cached by Forward alongside the filter set; evaluated together on a cache miss).
+// getBetaPolicySets returns the beta policy filter set and explicit pass set, using the gin
+// context cache if available. In the /v1/messages path, Forward() evaluates the policy first
+// and caches the result; buildUpstreamRequest reuses it (zero extra DB calls). In the
+// count_tokens path, this evaluates on demand (one DB call).
 func (s *GatewayService) getBetaPolicySets(ctx context.Context, c *gin.Context, account *Account, model string) (filterSet, passSet map[string]struct{}) {
 	if c != nil {
 		if v, ok := c.Get(betaPolicyFilterSetKey); ok {

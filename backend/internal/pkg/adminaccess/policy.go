@@ -73,15 +73,21 @@ func OwnerUserID(ctx context.Context) int64 {
 	return 0
 }
 
-// OwnerPolicy 授予全部所有者目录权限；资源归属由处理器与仓储按 OwnerUserID 再次限定。
-func OwnerPolicy() Policy {
+// ownerPermissions 在包初始化时由静态目录计算一次，之后只读。
+var ownerPermissions = func() []string {
 	permissions := []string{}
 	for _, definition := range definitions {
 		if definition.Scope == "owner" {
 			permissions = append(permissions, definition.ID)
 		}
 	}
-	return Policy{GlobalPermissions: permissions, owner: true}
+	return slices.Clip(permissions)
+}()
+
+// OwnerPolicy 授予全部所有者目录权限；资源归属由处理器与仓储按 OwnerUserID 再次限定。
+// 返回的权限切片与其他调用方共享，只读；容量已截断，追加不会改写共享数据。
+func OwnerPolicy() Policy {
+	return Policy{GlobalPermissions: ownerPermissions, owner: true}
 }
 
 // Matches 保持分组、类型和平台在同一规则中匹配，不拆开合并授权条件。

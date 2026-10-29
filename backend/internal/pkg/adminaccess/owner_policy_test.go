@@ -5,6 +5,7 @@ package adminaccess
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -74,4 +75,16 @@ func TestOwnerPrincipalIsSeparateFromAdminKeyPrincipal(t *testing.T) {
 	require.Nil(t, OwnerFromContext(key))
 	require.Zero(t, OwnerUserID(key))
 	require.Zero(t, OwnerUserID(context.Background()))
+}
+
+// 所有者策略只在包初始化时计算一次；调用方追加权限不能污染共享的目录切片。
+func TestOwnerPolicyIsComputedOnceAndAppendSafe(t *testing.T) {
+	first, second := OwnerPolicy(), OwnerPolicy()
+	require.NotEmpty(t, first.GlobalPermissions)
+	require.Same(t, &first.GlobalPermissions[0], &second.GlobalPermissions[0])
+	want := slices.Clone(first.GlobalPermissions)
+	_ = append(first.GlobalPermissions, "users.read")
+	require.Equal(t, want, OwnerPolicy().GlobalPermissions)
+	require.False(t, RouteAllowed(OwnerPolicy(), "GET", "/api/v1/admin/users"))
+	require.True(t, OwnerPolicy().owner)
 }

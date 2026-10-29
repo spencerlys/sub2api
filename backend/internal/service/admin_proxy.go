@@ -71,6 +71,15 @@ func (s *adminServiceImpl) CreateProxy(ctx context.Context, input *CreateProxyIn
 	if input.ExpiryWarnDays < 0 {
 		return nil, infraerrors.BadRequest("PROXY_WARN_DAYS_INVALID", "expiry_warn_days must be >= 0")
 	}
+	// 所有者：备用代理须归本人，代理地址不得指向内网（创建后会立即探测该地址）。
+	if input.BackupProxyID != nil {
+		if err := s.ensureOwnerReferences(ctx, OwnerResourceProxy, []int64{*input.BackupProxyID}); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkOwnerOutboundHost(ctx, input.Host); err != nil {
+		return nil, err
+	}
 
 	proxy := &Proxy{
 		Name:           input.Name,
@@ -112,6 +121,7 @@ func (s *adminServiceImpl) UpdateProxy(ctx context.Context, id int64, input *Upd
 		mode = input.FallbackMode
 	}
 	backupID := proxy.BackupProxyID
+	previousBackupID, previousHost := proxy.BackupProxyID, proxy.Host
 	if input.BackupProxyID != nil || input.ClearBackupID {
 		backupID = input.BackupProxyID
 	}
@@ -150,6 +160,21 @@ func (s *adminServiceImpl) UpdateProxy(ctx context.Context, id int64, input *Upd
 	proxy.BackupProxyID = backupID
 	if input.ExpiryWarnDays != nil {
 		proxy.ExpiryWarnDays = *input.ExpiryWarnDays
+	}
+	// 所有者：新指定的备用代理须归本人（保持不变的放行），改动后的地址不得指向内网。
+	if backupID != nil {
+		var unchanged []int64
+		if previousBackupID != nil {
+			unchanged = []int64{*previousBackupID}
+		}
+		if err := s.ensureOwnerReferences(ctx, OwnerResourceProxy, []int64{*backupID}, unchanged...); err != nil {
+			return nil, err
+		}
+	}
+	if proxy.Host != previousHost {
+		if err := checkOwnerOutboundHost(ctx, proxy.Host); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := s.proxyRepo.Update(ctx, proxy); err != nil {
@@ -217,6 +242,10 @@ func (s *adminServiceImpl) TestProxy(ctx context.Context, id int64) (*ProxyTestR
 	if err != nil {
 		return nil, err
 	}
+	// 探测前复查所有者代理地址，覆盖规则生效前保存或 DNS 已变化的代理。
+	if err := checkOwnerOutboundHost(ctx, proxy.Host); err != nil {
+		return nil, err
+	}
 
 	proxyURL := proxy.URL()
 	exitInfo, latencyMs, err := s.proxyProber.ProbeProxy(ctx, proxyURL)
@@ -259,6 +288,9 @@ func (s *adminServiceImpl) TestProxy(ctx context.Context, id int64) (*ProxyTestR
 func (s *adminServiceImpl) CheckProxyQuality(ctx context.Context, id int64) (*ProxyQualityCheckResult, error) {
 	proxy, err := s.proxyRepo.GetByID(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkOwnerOutboundHost(ctx, proxy.Host); err != nil {
 		return nil, err
 	}
 

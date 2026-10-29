@@ -200,6 +200,7 @@ import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+import { resolveRoleHomePath } from '@/router/roleHome'
 
 interface NavItem {
   path: string
@@ -254,9 +255,7 @@ const isOwner = computed(() => authStore.isOwner)
 const sidebarNavRef = ref<HTMLElement | null>(null)
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
-const homePath = computed(() =>
-  isAdmin.value ? '/admin/dashboard' : isOwner.value ? '/admin/accounts' : '/dashboard'
-)
+const homePath = computed(() => resolveRoleHomePath(isAdmin.value, isOwner.value))
 
 // Per-group expand/collapse overrides. A group with no entry follows the
 // automatic behavior (expanded while the active route is one of its children);

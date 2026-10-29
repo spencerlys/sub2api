@@ -149,6 +149,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		return err
 	}
 
+	// [1m] 后缀视同请求 context-1m，是否放行与 /v1/messages 一样交给 beta 策略。
+	if c != nil {
+		c.Set(longContextRequestedKey, parsed.LongContextRequested)
+	}
+
 	// 构建上游请求
 	upstreamReq, wireBody, err := s.buildCountTokensRequest(ctx, c, account, body, token, tokenType, reqModel, shouldMimicClaudeCode)
 	if err != nil {
@@ -530,9 +535,12 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
 	// 顺序约束同 buildUpstreamRequest。
-	ctEffectiveDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
+	// beta 策略的 pass 集合与 [1m] 后缀按 /v1/messages 同一规则处理（见 buildUpstreamRequest）。
+	ctPolicyFilterSet, ctPolicyPassSet := s.getBetaPolicySets(ctx, c, account, modelID)
+	ctEffectiveDropSet := mergeDropSets(ctPolicyFilterSet)
+	ctPassBetas := policyPassBetas(getHeaderRaw(clientHeaders, "anthropic-beta"), c != nil && c.GetBool(longContextRequestedKey), ctPolicyPassSet)
 	finalBetaHeader, finalBetaShouldSet := s.computeFinalCountTokensAnthropicBeta(
-		tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctEffectiveDropSet,
+		tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctEffectiveDropSet, ctPassBetas,
 	)
 
 	// 账号覆写了 anthropic-beta 时，覆写值即最终上游值：净化以覆写值为准

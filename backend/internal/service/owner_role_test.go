@@ -32,25 +32,33 @@ func TestAdminService_UpdateUser_LastAdminCannotBecomeOwner(t *testing.T) {
 }
 
 func TestStripOwnerAccountBilling(t *testing.T) {
-	rate, sync := 0.5, true
+	rate, probe, sync := 0.5, false, true
 	owner := adminaccess.WithPrincipal(context.Background(), &adminaccess.Principal{OwnerUserID: 7, Policy: adminaccess.OwnerPolicy()})
 
-	r, s := &rate, &sync
-	extra := map[string]any{openAILongContextBillingEnabledKey: true, "base_rpm": 10}
-	stripOwnerAccountBilling(owner, &r, &s, extra)
+	r, p, s := &rate, &probe, &sync
+	extra := map[string]any{
+		openAILongContextBillingEnabledKey: true, "base_rpm": 10,
+		UpstreamBillingProbeEnabledExtraKey: false, UpstreamBillingRateSyncEnabledExtraKey: false,
+	}
+	stripOwnerAccountBilling(owner, &r, &p, &s, extra)
 	require.Nil(t, r)
+	require.Nil(t, p)
 	require.Nil(t, s)
 	require.NotContains(t, extra, openAILongContextBillingEnabledKey)
+	require.NotContains(t, extra, UpstreamBillingProbeEnabledExtraKey)
+	require.NotContains(t, extra, UpstreamBillingRateSyncEnabledExtraKey)
 	require.Equal(t, 10, extra["base_rpm"])
 
-	r, s = &rate, &sync
-	adminExtra := map[string]any{openAILongContextBillingEnabledKey: true}
-	stripOwnerAccountBilling(context.Background(), &r, &s, adminExtra)
+	r, p, s = &rate, &probe, &sync
+	adminExtra := map[string]any{openAILongContextBillingEnabledKey: true, UpstreamBillingProbeEnabledExtraKey: false}
+	stripOwnerAccountBilling(context.Background(), &r, &p, &s, adminExtra)
 	require.Same(t, &rate, r)
+	require.Same(t, &probe, p)
 	require.Same(t, &sync, s)
 	require.Contains(t, adminExtra, openAILongContextBillingEnabledKey)
+	require.Contains(t, adminExtra, UpstreamBillingProbeEnabledExtraKey)
 
 	r = &rate
-	stripOwnerAccountBilling(owner, &r, nil, nil)
+	stripOwnerAccountBilling(owner, &r, nil, nil, nil)
 	require.Nil(t, r)
 }

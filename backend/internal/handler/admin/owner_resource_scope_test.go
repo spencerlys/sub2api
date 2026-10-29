@@ -21,6 +21,10 @@ import (
 type ownerScopeTestService struct {
 	service.AdminService
 	accounts, proxies, groups map[int64]*int64
+	// accountDetails 为账户补充当前分组、代理与凭证；ownerLookups 记录批量归属查询次数。
+	accountDetails map[int64]service.Account
+	backupProxies  map[int64]int64
+	ownerLookups   int
 }
 
 func ownerOf(id int64) *int64 { return &id }
@@ -30,7 +34,21 @@ func (s *ownerScopeTestService) GetAccount(_ context.Context, id int64) (*servic
 	if !ok {
 		return nil, service.ErrAccountNotFound
 	}
-	return &service.Account{ID: id, OwnerUserID: owner}, nil
+	account := s.accountDetails[id]
+	account.ID, account.OwnerUserID = id, owner
+	return &account, nil
+}
+
+func (s *ownerScopeTestService) ResourceOwnerIDs(_ context.Context, kind string, ids []int64) (map[int64]*int64, error) {
+	s.ownerLookups++
+	source := map[string]map[int64]*int64{"account": s.accounts, "proxy": s.proxies, "group": s.groups}[kind]
+	out := map[int64]*int64{}
+	for _, id := range ids {
+		if owner, ok := source[id]; ok {
+			out[id] = owner
+		}
+	}
+	return out, nil
 }
 
 func (s *ownerScopeTestService) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
@@ -48,7 +66,11 @@ func (s *ownerScopeTestService) GetProxy(_ context.Context, id int64) (*service.
 	if !ok {
 		return nil, service.ErrProxyNotFound
 	}
-	return &service.Proxy{ID: id, OwnerUserID: owner}, nil
+	p := &service.Proxy{ID: id, OwnerUserID: owner}
+	if backup, ok := s.backupProxies[id]; ok {
+		p.BackupProxyID = &backup
+	}
+	return p, nil
 }
 
 func (s *ownerScopeTestService) GetGroup(_ context.Context, id int64) (*service.Group, error) {
@@ -60,12 +82,24 @@ func (s *ownerScopeTestService) GetGroup(_ context.Context, id int64) (*service.
 }
 
 func newOwnerScopeRouter(t *testing.T, ownerID int64) (*gin.Engine, *[]string) {
+	router, reached, _ := newOwnerScopeRouterWithService(t, ownerID)
+	return router, reached
+}
+
+func newOwnerScopeRouterWithService(t *testing.T, ownerID int64) (*gin.Engine, *[]string, *ownerScopeTestService) {
 	gin.SetMode(gin.TestMode)
-	// 7 号所有者拥有账户 1、代理 1、分组 1；2 号资源属于其他所有者，3 号为管理员存量资源。
+	// 7 号所有者拥有账户 1/4/5、代理 1、分组 1；2 号资源属于其他所有者，3 号为管理员存量资源。
+	// 账户 5 已被管理员绑定到分组 3 与代理 3；账户 4 的 base_url 指向回环地址（规则生效前保存）；
+	// 代理 1 的备用代理被管理员设为代理 3。
 	svc := &ownerScopeTestService{
-		accounts: map[int64]*int64{1: ownerOf(7), 2: ownerOf(8), 3: nil},
+		accounts: map[int64]*int64{1: ownerOf(7), 2: ownerOf(8), 3: nil, 4: ownerOf(7), 5: ownerOf(7)},
 		proxies:  map[int64]*int64{1: ownerOf(7), 2: ownerOf(8), 3: nil},
 		groups:   map[int64]*int64{1: ownerOf(7), 2: ownerOf(8), 3: nil},
+		accountDetails: map[int64]service.Account{
+			4: {Credentials: map[string]any{"base_url": "http://127.0.0.1:5432"}},
+			5: {GroupIDs: []int64{1, 3}, ProxyID: ownerOf(3)},
+		},
+		backupProxies: map[int64]int64{1: 3},
 	}
 	h := &AccountHandler{adminService: svc}
 	reached := []string{}
@@ -86,10 +120,11 @@ func newOwnerScopeRouter(t *testing.T, ownerID int64) (*gin.Engine, *[]string) {
 		{"POST", "/api/v1/admin/accounts/today-stats/batch"}, {"POST", "/api/v1/admin/groups"},
 		{"GET", "/api/v1/admin/groups/:id/model-allowlist-candidates"}, {"POST", "/api/v1/admin/proxies/:id/test"},
 		{"GET", "/api/v1/admin/usage"}, {"POST", "/api/v1/admin/scheduled-test-plans/:id"},
+		{"GET", "/api/v1/admin/accounts"}, {"POST", "/api/v1/admin/accounts/:id/test"}, {"PUT", "/api/v1/admin/proxies/:id"},
 	} {
 		router.Handle(route.method, route.path, record)
 	}
-	return router, &reached
+	return router, &reached, svc
 }
 
 func ownerScopeCall(router *gin.Engine, method, path, body string) int {
@@ -146,6 +181,70 @@ func TestOwnerResourceScopeRejectsForeignResources(t *testing.T) {
 	}
 	// 校验后请求体原样交给处理器。
 	require.Contains(t, *reached, `POST /api/v1/admin/accounts {"group_ids":[1],"proxy_id":1}`)
+}
+
+// 管理员已为所有者账户绑定的分组/代理（及代理的备用代理）属于保持不变的引用，编辑表单原样回传时放行；
+// 新增的他人资源引用仍拒绝。
+func TestOwnerResourceScopeAllowsUnchangedAdminReferences(t *testing.T) {
+	router, _ := newOwnerScopeRouter(t, 7)
+	cases := []struct {
+		method, path, body string
+		want               int
+	}{
+		{"PUT", "/api/v1/admin/accounts/5", `{"name":"x","group_ids":[1,3],"proxy_id":3}`, http.StatusOK},
+		{"PUT", "/api/v1/admin/accounts/5", `{"group_ids":[1]}`, http.StatusOK},
+		{"PUT", "/api/v1/admin/accounts/5", `{"group_ids":[1,3,2]}`, http.StatusNotFound},
+		{"PUT", "/api/v1/admin/accounts/1", `{"group_ids":[3]}`, http.StatusNotFound},
+		{"PUT", "/api/v1/admin/accounts/1", `{"proxy_id":3}`, http.StatusNotFound},
+		{"PUT", "/api/v1/admin/proxies/1", `{"backup_proxy_id":3}`, http.StatusOK},
+		{"PUT", "/api/v1/admin/proxies/1", `{"backup_proxy_id":2}`, http.StatusNotFound},
+		// 其他接口不继承已绑定引用的放行。
+		{"POST", "/api/v1/admin/accounts", `{"group_ids":[3]}`, http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.want, ownerScopeCall(router, tc.method, tc.path, tc.body), tc.method+" "+tc.path+" "+tc.body)
+	}
+}
+
+// 账户列表的 group 筛选只能是本人分组、0 或 ungrouped，避免探测管理员分组。
+func TestOwnerResourceScopeValidatesAccountGroupFilter(t *testing.T) {
+	router, _ := newOwnerScopeRouter(t, 7)
+	for query, want := range map[string]int{
+		"":                 http.StatusOK,
+		"?group=1":         http.StatusOK,
+		"?group=0":         http.StatusOK,
+		"?group=ungrouped": http.StatusOK,
+		"?group=3":         http.StatusNotFound,
+		"?group=2":         http.StatusNotFound,
+		"?group=404":       http.StatusNotFound,
+		"?group=abc":       http.StatusNotFound,
+	} {
+		require.Equal(t, want, ownerScopeCall(router, "GET", "/api/v1/admin/accounts"+query, ""), query)
+	}
+}
+
+// 归属按类批量查询：一次请求引用多个同类资源只查询一次，超过上限直接拒绝。
+func TestOwnerResourceScopeBatchesOwnershipLookup(t *testing.T) {
+	router, _, svc := newOwnerScopeRouterWithService(t, 7)
+	require.Equal(t, http.StatusOK, ownerScopeCall(router, "POST", "/api/v1/admin/accounts/today-stats/batch", `{"account_ids":[1,4,5,1]}`))
+	require.Equal(t, 1, svc.ownerLookups)
+
+	ids := make([]string, ownerMaxReferencedIDs+1)
+	for i := range ids {
+		ids[i] = "1"
+	}
+	require.Equal(t, http.StatusBadRequest, ownerScopeCall(router, "POST", "/api/v1/admin/accounts/today-stats/batch", `{"account_ids":[`+strings.Join(ids, ",")+`]}`))
+}
+
+// 即时出站接口在执行前复查所有者账户地址，覆盖规则生效前保存的内网地址。
+func TestOwnerResourceScopeRechecksOutboundBeforeAccountTest(t *testing.T) {
+	router, reached := newOwnerScopeRouter(t, 7)
+	require.Equal(t, http.StatusBadRequest, ownerScopeCall(router, "POST", "/api/v1/admin/accounts/4/test", `{}`))
+	require.Equal(t, http.StatusOK, ownerScopeCall(router, "POST", "/api/v1/admin/accounts/1/test", `{}`))
+	require.Len(t, *reached, 1)
+
+	admin, _ := newOwnerScopeRouter(t, 0)
+	require.Equal(t, http.StatusOK, ownerScopeCall(admin, "POST", "/api/v1/admin/accounts/4/test", `{}`))
 }
 
 func TestOwnerResourceScopeIgnoresAdmins(t *testing.T) {

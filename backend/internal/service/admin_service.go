@@ -121,6 +121,8 @@ type AdminService interface {
 	GetAllProxiesWithAccountCount(ctx context.Context) ([]ProxyWithAccountCount, error)
 	GetProxy(ctx context.Context, id int64) (*Proxy, error)
 	GetProxiesByIDs(ctx context.Context, ids []int64) ([]Proxy, error)
+	// ResourceOwnerIDs 批量读取账户/分组/代理归属，供 AI 账号所有者的引用校验使用。
+	ResourceOwnerIDs(ctx context.Context, kind string, ids []int64) (map[int64]*int64, error)
 	CreateProxy(ctx context.Context, input *CreateProxyInput) (*Proxy, error)
 	UpdateProxy(ctx context.Context, id int64, input *UpdateProxyInput) (*Proxy, error)
 	DeleteProxy(ctx context.Context, id int64) error

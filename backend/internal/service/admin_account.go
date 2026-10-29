@@ -480,19 +480,26 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 // stripOwnerAccountBilling 让 AI 账号所有者无法修改账户计费倍率与计费开关（Q2），由管理员统一维护。
-func stripOwnerAccountBilling(ctx context.Context, rateMultiplier **float64, rateSync **bool, extra map[string]any) {
+// 上游计费探测与倍率同步同属计费：所有者既不能开启也不能关闭（关闭探测会连带关闭同步）。
+// 所有者新建的账户因此保持默认的探测关闭，需由管理员按需开启；之后的编辑沿用库中现值。
+func stripOwnerAccountBilling(ctx context.Context, rateMultiplier **float64, probeEnabled, rateSync **bool, extra map[string]any) {
 	if adminaccess.OwnerUserID(ctx) <= 0 {
 		return
 	}
 	*rateMultiplier = nil
+	if probeEnabled != nil {
+		*probeEnabled = nil
+	}
 	if rateSync != nil {
 		*rateSync = nil
 	}
 	delete(extra, openAILongContextBillingEnabledKey)
+	delete(extra, UpstreamBillingProbeEnabledExtraKey)
+	delete(extra, UpstreamBillingRateSyncEnabledExtraKey)
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
-	stripOwnerAccountBilling(ctx, &input.RateMultiplier, nil, input.Extra)
+	stripOwnerAccountBilling(ctx, &input.RateMultiplier, &input.ProbeEnabled, nil, input.Extra)
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -549,6 +556,18 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
 	}
+	// 所有者只能绑定本人的分组与代理，出站地址不得指向内网。
+	if err := s.ensureOwnerReferences(ctx, OwnerResourceGroup, groupIDs); err != nil {
+		return nil, err
+	}
+	if account.ProxyID != nil {
+		if err := s.ensureOwnerReferences(ctx, OwnerResourceProxy, []int64{*account.ProxyID}); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkOwnerAccountOutbound(ctx, account.Credentials, account.Extra, nil); err != nil {
+		return nil, err
+	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}
@@ -591,7 +610,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
-	stripOwnerAccountBilling(ctx, &input.RateMultiplier, &input.RateSyncEnabled, input.Extra)
+	stripOwnerAccountBilling(ctx, &input.RateMultiplier, &input.ProbeEnabled, &input.RateSyncEnabled, input.Extra)
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -622,6 +641,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
+	previousOutboundURLs := ownerAccountOutboundURLs(account.Credentials, account.Extra)
+	previousGroupIDs, previousProxyID := account.GroupIDs, account.ProxyID
+	previousProbeManaged := upstreamBillingProbeEnabled(account) || upstreamBillingRateSyncEnabled(account)
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
 	previousOpenCodeUsageIdentity := openCodeGoUsageIdentity(account)
 	// 安全/身份不变量(影子账号):通用更新路径被 edit/re-auth/refresh/batch 共用,
@@ -794,6 +816,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if !reflect.DeepEqual(previousProbeIdentity, upstreamBillingProbeIdentity(account)) && account.Extra != nil {
 		delete(account.Extra, UpstreamBillingProbeExtraKey)
+		// 改类型使账户不再适用探测会清掉管理员开启的探测/同步开关，所有者不能借此关闭计费探测。
+		if previousProbeManaged && !isUpstreamBillingProbeAccount(account) && adminaccess.OwnerUserID(ctx) > 0 {
+			return nil, ErrOwnerBillingProbeManaged
+		}
 		if !isUpstreamBillingProbeAccount(account) {
 			delete(account.Extra, UpstreamBillingProbeEnabledExtraKey)
 			delete(account.Extra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -864,6 +890,25 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if input.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
+	}
+
+	// 所有者：新绑定的分组与代理须归本人，已绑定且保持不变的引用（含管理员所绑）放行；新增出站地址不得指向内网。
+	if input.GroupIDs != nil {
+		if err := s.ensureOwnerReferences(ctx, OwnerResourceGroup, *input.GroupIDs, previousGroupIDs...); err != nil {
+			return nil, err
+		}
+	}
+	if input.ProxyID != nil && account.ProxyID != nil {
+		var unchanged []int64
+		if previousProxyID != nil {
+			unchanged = []int64{*previousProxyID}
+		}
+		if err := s.ensureOwnerReferences(ctx, OwnerResourceProxy, []int64{*account.ProxyID}, unchanged...); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkOwnerAccountOutbound(ctx, account.Credentials, account.Extra, previousOutboundURLs); err != nil {
+		return nil, err
 	}
 
 	// 先验证分组是否存在（在任何写操作之前）
@@ -955,7 +1000,7 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, UpstreamBillingProbeExtraKey)
 	delete(updates, OllamaCloudUsageSessionExtraKey)
 	var noRate *float64
-	stripOwnerAccountBilling(ctx, &noRate, nil, updates)
+	stripOwnerAccountBilling(ctx, &noRate, nil, nil, updates)
 	delete(updates, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
 	delete(updates, OpenCodeGoUsageAutoRefreshExtraKey)

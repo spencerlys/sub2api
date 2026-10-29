@@ -631,6 +631,10 @@ func (s *stubAdminService) GetProxy(ctx context.Context, id int64) (*service.Pro
 	return &proxy, nil
 }
 
+func (s *stubAdminService) ResourceOwnerIDs(ctx context.Context, kind string, ids []int64) (map[int64]*int64, error) {
+	return map[int64]*int64{}, nil
+}
+
 func (s *stubAdminService) GetProxiesByIDs(ctx context.Context, ids []int64) ([]service.Proxy, error) {
 	if len(ids) == 0 {
 		return []service.Proxy{}, nil

@@ -141,6 +141,86 @@ func TestBuildUpstreamRequest_BetaPolicyPassContext1M(t *testing.T) {
 	}
 }
 
+// count_tokens 与 /v1/messages 对 beta 策略 pass / [1m] 后缀 / filter 优先级的处理必须一致。
+func TestBuildCountTokensRequest_BetaPolicyPassMatchesMessages(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		settings    *BetaPolicySettings
+		model       string
+		tokenType   string
+		mimic       bool
+		clientBeta  string
+		longContext bool
+		want1M      bool
+	}{
+		{"mimic [1m] suffix whitelisted", context1MOpusPassPolicy(), "claude-opus-4-8", "oauth", true, "", true, true},
+		{"mimic [1m] suffix default settings", nil, "claude-opus-4-8", "oauth", true, "", true, false},
+		{"mimic filter fallback wins over client beta", context1MOpusPassPolicy(), "claude-opus-4-7", "oauth", true, claude.BetaContext1M, false, false},
+		{"mimic [1m] suffix outside whitelist", context1MOpusPassPolicy(), "claude-opus-4-7", "oauth", true, "", true, false},
+		{"passthrough [1m] suffix whitelisted", context1MOpusPassPolicy(), "claude-opus-4-8", "oauth", false, "", true, true},
+		{"passthrough [1m] suffix without a rule", &BetaPolicySettings{}, "claude-opus-4-8", "oauth", false, "", true, false},
+		{"passthrough client beta outside whitelist", context1MOpusPassPolicy(), "claude-opus-4-7", "oauth", false, claude.BetaContext1M, false, false},
+		{"apikey [1m] suffix whitelisted", context1MOpusPassPolicy(), "claude-opus-4-8", "apikey", false, "", true, true},
+		{"apikey [1m] suffix default settings", nil, "claude-opus-4-8", "apikey", false, "", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			accountType := AccountTypeOAuth
+			if tc.tokenType == "apikey" {
+				accountType = AccountTypeAPIKey
+			}
+			account := &Account{ID: 704, Platform: PlatformAnthropic, Type: accountType,
+				Credentials: map[string]any{"access_token": "test-token", "api_key": "test-key"}, Status: StatusActive, Schedulable: true}
+			body := []byte(`{"model":"` + tc.model + `","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`)
+			newContext := func(path string) *gin.Context {
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, path, nil)
+				if tc.clientBeta != "" {
+					c.Request.Header.Set("anthropic-beta", tc.clientBeta)
+				}
+				if tc.longContext {
+					c.Set(longContextRequestedKey, true)
+				}
+				return c
+			}
+			svc := newGatewayServiceWithBetaPolicy(t, tc.settings)
+
+			ctReq, _, err := svc.buildCountTokensRequest(context.Background(), newContext("/v1/messages/count_tokens"), account, body,
+				"test-token", tc.tokenType, tc.model, tc.mimic)
+			require.NoError(t, err)
+			ctHeader := getHeaderRaw(ctReq.Header, "anthropic-beta")
+			require.Equal(t, tc.want1M, containsBetaToken(ctHeader, claude.BetaContext1M), ctHeader)
+
+			msgReq, _, err := svc.buildUpstreamRequest(context.Background(), newContext("/v1/messages"), account, body,
+				"test-token", tc.tokenType, tc.model, false, tc.mimic)
+			require.NoError(t, err)
+			msgHeader := getHeaderRaw(msgReq.Header, "anthropic-beta")
+			require.Equal(t, containsBetaToken(msgHeader, claude.BetaContext1M), containsBetaToken(ctHeader, claude.BetaContext1M),
+				"count_tokens=%q messages=%q", ctHeader, msgHeader)
+		})
+	}
+}
+
+func TestComputeFinalCountTokensAnthropicBeta_PassBetasRespectDropSet(t *testing.T) {
+	svc := &GatewayService{cfg: &config.Config{}}
+	pass := []string{claude.BetaContext1M}
+	drop := map[string]struct{}{claude.BetaContext1M: {}}
+
+	got, ok := svc.computeFinalCountTokensAnthropicBeta("apikey", false, "claude-opus-4-8", http.Header{}, []byte(`{}`), nil, pass)
+	require.True(t, ok)
+	require.Equal(t, claude.BetaContext1M, got)
+	got, ok = svc.computeFinalCountTokensAnthropicBeta("apikey", false, "claude-opus-4-8", http.Header{}, []byte(`{}`), drop, pass)
+	require.False(t, ok)
+	require.Empty(t, got)
+
+	got, ok = svc.computeFinalCountTokensAnthropicBeta("oauth", false, "claude-opus-4-8", http.Header{}, []byte(`{}`), nil, pass)
+	require.True(t, ok)
+	require.True(t, containsBetaToken(got, claude.BetaTokenCounting), got)
+	require.True(t, containsBetaToken(got, claude.BetaContext1M), got)
+	got, _ = svc.computeFinalCountTokensAnthropicBeta("oauth", true, "claude-opus-4-8", http.Header{}, []byte(`{}`), drop, pass)
+	require.False(t, containsBetaToken(got, claude.BetaContext1M), got)
+}
+
 func TestParseGatewayRequest_LongContextSuffixMarksRequest(t *testing.T) {
 	parsed, err := ParseGatewayRequest(NewRequestBodyRef([]byte(`{"model":"claude-opus-4-8[1m]","messages":[]}`)), domain.PlatformAnthropic)
 	require.NoError(t, err)

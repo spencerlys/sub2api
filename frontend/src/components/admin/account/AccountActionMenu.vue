@@ -29,7 +29,7 @@
             </button>
             <!-- 影子账号不持凭据:重授权/刷新 token 对其无效(后端拒绝),故隐藏(外审 G4)。 -->
             <template v-if="(account.type === 'oauth' || account.type === 'setup-token') && !isShadow">
-              <!-- 所有者无 apply-oauth-credentials 权限，重授权不可用 -->
+              <!-- 所有者目录包含 apply-oauth-credentials 与 refresh，可对本人账户重授权和刷新 token -->
               <button @click="$emit('reauth', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-blue-600 hover:bg-gray-100 dark:hover:bg-dark-700">
                 <Icon name="link" size="sm" />
                 {{ t('admin.accounts.reAuthorize') }}
@@ -75,7 +75,7 @@ import { useIsOwner } from '@/components/account/ownerAccess'
 const props = defineProps<{ show: boolean; account: Account | null; anchorRect: DOMRect | null }>()
 const emit = defineEmits(['close', 'test', 'stats', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow'])
 const { t } = useI18n()
-// 所有者：计划测试/复制/重授权/Spark 影子/隐私/重置额度接口均为管理员专属
+// 所有者：计划测试/复制/Spark 影子/隐私接口为管理员专属，故隐藏；重授权、刷新 token、恢复状态与重置额度在所有者目录内，保持可见
 const isOwner = useIsOwner()
 const menuRef = ref<HTMLElement | null>(null)
 const { width: viewportWidth, height: viewportHeight } = useWindowSize()

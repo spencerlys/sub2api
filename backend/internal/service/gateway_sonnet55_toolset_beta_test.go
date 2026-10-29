@@ -47,7 +47,7 @@ func TestSonnet55ToolsetDropsLegacyStreamingBeta(t *testing.T) {
 					var got string
 					var set bool
 					if tokens.count {
-						got, set = svc.computeFinalCountTokensAnthropicBeta("apikey", false, tc.model, requestHeaders, body, nil)
+						got, set = svc.computeFinalCountTokensAnthropicBeta("apikey", false, tc.model, requestHeaders, body, nil, nil)
 					} else {
 						got, set = svc.computeFinalAnthropicBeta("apikey", false, tc.model, requestHeaders, body, nil, nil)
 					}

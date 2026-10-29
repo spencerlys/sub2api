@@ -6,22 +6,33 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	ownerResourceAccount = "account"
-	ownerResourceGroup   = "group"
-	ownerResourceProxy   = "proxy"
-	// 单次请求可引用的资源上限，避免以超大 ID 列表放大归属查询。
-	ownerMaxReferencedIDs = 1000
+	ownerResourceAccount = service.OwnerResourceAccount
+	ownerResourceGroup   = service.OwnerResourceGroup
+	ownerResourceProxy   = service.OwnerResourceProxy
+	// 单次请求每类可引用的资源上限；归属按类批量一次查询，上限仅防超大 ID 列表。
+	ownerMaxReferencedIDs = 200
 	ownerMaxBodyBytes     = 4 << 20
 )
+
+// ownerOutboundAccountPaths 会立即以账户凭证或代理发起出站请求的接口，执行前复查出站地址。
+var ownerOutboundAccountPaths = map[string]bool{
+	"/api/v1/admin/accounts/:id/test":                 true,
+	"/api/v1/admin/accounts/:id/models":               true,
+	"/api/v1/admin/accounts/:id/models/sync-upstream": true,
+	"/api/v1/admin/accounts/:id/refresh":              true,
+	"/api/v1/admin/accounts/:id/recover-state":        true,
+}
 
 // ownerPathResources 按路径前缀确定 :id 指向的资源；所有者目录中其他带 :id 的路由一律拒绝。
 var ownerPathResources = []struct {
@@ -52,6 +63,8 @@ func (h *AccountHandler) OwnerResourceScope(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 	path := c.FullPath()
+	// unchanged 记录被编辑资源当前已有的引用，请求体原样回传时不再要求归属。
+	unchanged := map[string][]int64{}
 
 	if raw := c.Param("id"); raw != "" {
 		kind := ""
@@ -72,6 +85,40 @@ func (h *AccountHandler) OwnerResourceScope(c *gin.Context) {
 			ownerScopeAbort(c, http.StatusNotFound, "资源不存在")
 			return
 		}
+		switch {
+		case kind == ownerResourceAccount && path == "/api/v1/admin/accounts/:id" && c.Request.Method == http.MethodPut:
+			// 编辑表单总会回传当前分组与代理；管理员为该账户绑定的分组/代理属于“保持不变”的引用。
+			account, err := h.adminService.GetAccount(ctx, id)
+			if err != nil || account == nil {
+				ownerScopeAbort(c, http.StatusNotFound, "资源不存在")
+				return
+			}
+			unchanged[ownerResourceGroup] = account.GroupIDs
+			if account.ProxyID != nil {
+				unchanged[ownerResourceProxy] = []int64{*account.ProxyID}
+			}
+		case kind == ownerResourceAccount && ownerOutboundAccountPaths[path]:
+			// 发起出站前复查地址，覆盖规则生效前保存的账户。
+			account, err := h.adminService.GetAccount(ctx, id)
+			if err != nil || account == nil {
+				ownerScopeAbort(c, http.StatusNotFound, "资源不存在")
+				return
+			}
+			if err := service.ValidateOwnerAccountOutbound(ctx, account); err != nil {
+				c.Abort()
+				response.ErrorFrom(c, err)
+				return
+			}
+		case kind == ownerResourceProxy && path == "/api/v1/admin/proxies/:id" && c.Request.Method == http.MethodPut:
+			p, err := h.adminService.GetProxy(ctx, id)
+			if err != nil || p == nil {
+				ownerScopeAbort(c, http.StatusNotFound, "资源不存在")
+				return
+			}
+			if p.BackupProxyID != nil {
+				unchanged[ownerResourceProxy] = []int64{*p.BackupProxyID}
+			}
+		}
 	}
 
 	query := c.Request.URL.Query()
@@ -80,9 +127,10 @@ func (h *AccountHandler) OwnerResourceScope(c *gin.Context) {
 		ownerScopeAbort(c, http.StatusForbidden, "账号所有者不能按用户或 API Key 筛选")
 		return
 	}
-	for key, kind := range map[string]string{"account_id": ownerResourceAccount, "group_id": ownerResourceGroup, "proxy_id": ownerResourceProxy} {
+	for key, kind := range map[string]string{"account_id": ownerResourceAccount, "group_id": ownerResourceGroup, "proxy_id": ownerResourceProxy, "group": ownerResourceGroup} {
 		raw := strings.TrimSpace(query.Get(key))
-		if raw == "" {
+		// 账户列表的 group 筛选另有 "ungrouped" 与 0（全部）取值，不涉及具体分组。
+		if raw == "" || (key == "group" && (raw == "ungrouped" || raw == "0")) {
 			continue
 		}
 		id, err := strconv.ParseInt(raw, 10, 64)
@@ -110,7 +158,8 @@ func (h *AccountHandler) OwnerResourceScope(c *gin.Context) {
 		return
 	}
 	for kind, ids := range refs {
-		if !h.ownerOwns(ctx, owner.OwnerUserID, kind, ids) {
+		ids = slices.DeleteFunc(ids, func(id int64) bool { return slices.Contains(unchanged[kind], id) })
+		if len(ids) > 0 && !h.ownerOwns(ctx, owner.OwnerUserID, kind, ids) {
 			ownerScopeAbort(c, http.StatusNotFound, "引用的资源不存在")
 			return
 		}
@@ -183,45 +232,26 @@ func ownerBodyReferenceIDs(body []byte) (map[string][]int64, int, string) {
 }
 
 // ownerOwns 判断全部资源均登记为该所有者；任一不存在或归属他人即视为不存在。
+// 每类资源一次批量查询，只读取归属列。
 func (h *AccountHandler) ownerOwns(ctx context.Context, ownerID int64, kind string, ids []int64) bool {
-	owned := func(got *int64) bool { return got != nil && *got == ownerID }
 	unique := make([]int64, 0, len(ids))
-	seen := map[int64]bool{}
 	for _, id := range ids {
 		if id <= 0 {
 			return false
 		}
-		if !seen[id] {
-			seen[id] = true
+		if !slices.Contains(unique, id) {
 			unique = append(unique, id)
 		}
 	}
-	if kind == ownerResourceAccount {
-		accounts, err := h.adminService.GetAccountsByIDs(ctx, unique)
-		if err != nil {
-			return false
-		}
-		found := map[int64]bool{}
-		for _, a := range accounts {
-			if a != nil && owned(a.OwnerUserID) {
-				found[a.ID] = true
-			}
-		}
-		return len(found) == len(unique)
+	if len(unique) == 0 || len(unique) > ownerMaxReferencedIDs {
+		return false
+	}
+	owners, err := h.adminService.ResourceOwnerIDs(ctx, kind, unique)
+	if err != nil {
+		return false
 	}
 	for _, id := range unique {
-		switch kind {
-		case ownerResourceProxy:
-			p, err := h.adminService.GetProxy(ctx, id)
-			if err != nil || p == nil || !owned(p.OwnerUserID) {
-				return false
-			}
-		case ownerResourceGroup:
-			g, err := h.adminService.GetGroup(ctx, id)
-			if err != nil || g == nil || !owned(g.OwnerUserID) {
-				return false
-			}
-		default:
+		if got := owners[id]; got == nil || *got != ownerID {
 			return false
 		}
 	}

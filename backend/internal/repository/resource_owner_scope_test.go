@@ -83,6 +83,64 @@ func TestProxyRepositoryOwnerStampingAndListScope(t *testing.T) {
 	require.True(t, exists)
 }
 
+// 管理员账户借用所有者代理时，所有者看到的 account_count 只含本人账户；管理员仍看到全部。
+func TestProxyAccountCountOwnerScope(t *testing.T) {
+	repo := newOwnerScopeProxyRepo(t)
+	owner, admin := ownerTestContext(7), context.Background()
+	p := &service.Proxy{Name: "mine", Protocol: "http", Host: "198.51.100.2", Port: 8080, Status: service.StatusActive, FallbackMode: "none"}
+	require.NoError(t, repo.Create(owner, p))
+	for _, ownerID := range []*int64{ptrInt64(7), nil, nil} {
+		_, err := repo.client.Account.Create().SetName("a").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).
+			SetStatus(service.StatusActive).SetCredentials(map[string]any{"api_key": "sk"}).SetProxyID(p.ID).SetNillableOwnerUserID(ownerID).Save(admin)
+		require.NoError(t, err)
+	}
+	params := pagination.PaginationParams{Page: 1, PageSize: 50}
+	mine, _, err := repo.ListWithFiltersAndAccountCount(owner, params, "", "", "")
+	require.NoError(t, err)
+	require.Len(t, mine, 1)
+	require.Equal(t, int64(1), mine[0].AccountCount)
+	active, err := repo.ListActiveWithAccountCount(owner)
+	require.NoError(t, err)
+	require.Len(t, active, 1)
+	require.Equal(t, int64(1), active[0].AccountCount)
+	all, _, err := repo.ListWithFiltersAndAccountCount(admin, params, "", "", "")
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	require.Equal(t, int64(3), all[0].AccountCount)
+}
+
+func ptrInt64(v int64) *int64 { return &v }
+
+// 归属批量查询：每类一次查询，返回真实归属（不受所有者列表范围影响），缺失 id 不出现。
+func TestResourceOwnerIDsBatchLookup(t *testing.T) {
+	proxies := newOwnerScopeProxyRepo(t)
+	client, admin := proxies.client, context.Background()
+	repo := newAccountRepositoryWithSQL(client, proxies.sql, nil)
+	mine := &service.Proxy{Name: "p", Protocol: "http", Host: "198.51.100.3", Port: 1, Status: service.StatusActive, FallbackMode: "none"}
+	require.NoError(t, proxies.Create(ownerTestContext(7), mine))
+	g1, err := client.Group.Create().SetName("g1").SetOwnerUserID(7).Save(admin)
+	require.NoError(t, err)
+	g2, err := client.Group.Create().SetName("g2").Save(admin)
+	require.NoError(t, err)
+	a1, err := client.Account.Create().SetName("a").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).
+		SetStatus(service.StatusActive).SetCredentials(map[string]any{"api_key": "sk"}).SetOwnerUserID(8).Save(admin)
+	require.NoError(t, err)
+
+	// 以其他所有者身份查询也必须返回真实归属，不能被列表范围过滤成“不存在”。
+	ctx := ownerTestContext(9)
+	groups, err := repo.ResourceOwnerIDs(ctx, service.OwnerResourceGroup, []int64{g1.ID, g2.ID, g1.ID, 999, 0})
+	require.NoError(t, err)
+	require.Equal(t, map[int64]*int64{g1.ID: ptrInt64(7), g2.ID: nil}, groups)
+	accounts, err := repo.ResourceOwnerIDs(ctx, service.OwnerResourceAccount, []int64{a1.ID})
+	require.NoError(t, err)
+	require.Equal(t, map[int64]*int64{a1.ID: ptrInt64(8)}, accounts)
+	got, err := repo.ResourceOwnerIDs(ctx, service.OwnerResourceProxy, []int64{mine.ID})
+	require.NoError(t, err)
+	require.Equal(t, map[int64]*int64{mine.ID: ptrInt64(7)}, got)
+	_, err = repo.ResourceOwnerIDs(ctx, "user", []int64{1})
+	require.Error(t, err)
+}
+
 func TestUsageLogListWithFiltersOwnerScope(t *testing.T) {
 	db, mock := newSQLMock(t)
 	repo := &usageLogRepository{sql: db}
