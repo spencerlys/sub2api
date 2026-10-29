@@ -207,6 +207,9 @@ type AccountWithConcurrency struct {
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
 	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+
+	// ownerForeignGroups 为 AI 账号所有者请求中不属于该所有者的分组（管理员加入的共享分组）。
+	ownerForeignGroups map[int64]struct{}
 }
 
 // AccountListItemWithConcurrency is the compact account-list envelope used
@@ -290,8 +293,44 @@ func simpleModeCompositeServiceGroupIDs(account *service.Account) map[int64]stru
 	return hidden
 }
 
+// marshalOwnerView 把所有者看不到的分组降为引用（ID、名称、平台、状态），隐藏其倍率、价格与限额；
+// group_ids 原样保留，所有者编辑账户时管理员加入的共享分组随表单回传而不丢失。
+func (a AccountWithConcurrency) marshalOwnerView() ([]byte, error) {
+	type alias AccountWithConcurrency
+	groups := make([]any, 0, len(a.Groups))
+	for _, group := range a.Groups {
+		if group == nil {
+			continue
+		}
+		if _, foreign := a.ownerForeignGroups[group.ID]; foreign {
+			groups = append(groups, simpleModeGroupReferenceFromDTO(group))
+		} else {
+			groups = append(groups, group)
+		}
+	}
+	accountGroups := make([]any, 0, len(a.AccountGroups))
+	for _, accountGroup := range a.AccountGroups {
+		if _, foreign := a.ownerForeignGroups[accountGroup.GroupID]; !foreign {
+			accountGroups = append(accountGroups, accountGroup)
+			continue
+		}
+		accountGroups = append(accountGroups, simpleModeAccountGroupReference{
+			AccountID: accountGroup.AccountID, GroupID: accountGroup.GroupID, Priority: accountGroup.Priority,
+			CreatedAt: accountGroup.CreatedAt, Group: simpleModeGroupReferenceFromDTO(accountGroup.Group),
+		})
+	}
+	return json.Marshal(struct {
+		alias
+		Groups        []any `json:"groups,omitempty"`
+		AccountGroups []any `json:"account_groups,omitempty"`
+	}{alias: alias(a), Groups: groups, AccountGroups: accountGroups})
+}
+
 func (a AccountWithConcurrency) MarshalJSON() ([]byte, error) {
 	type alias AccountWithConcurrency
+	if !a.simpleMode && a.Account != nil && len(a.ownerForeignGroups) > 0 {
+		return a.marshalOwnerView()
+	}
 	if !a.simpleMode || a.Account == nil {
 		return json.Marshal(alias(a))
 	}
@@ -408,6 +447,7 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 	}
 
 	h.enrichShadowParents(ctx, []AccountWithConcurrency{item})
+	item.ownerForeignGroups = h.ownerForeignGroupIDs(ctx, item.Account)
 
 	return item
 }
@@ -841,6 +881,16 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	h.enrichShadowParents(c.Request.Context(), result)
+	if !lite {
+		responses := make([]*dto.Account, len(result))
+		for i := range result {
+			responses[i] = result[i].Account
+		}
+		foreign := h.ownerForeignGroupIDs(c.Request.Context(), responses...)
+		for i := range result {
+			result[i].ownerForeignGroups = foreign
+		}
+	}
 
 	if lite {
 		compact := make([]AccountListItemWithConcurrency, len(result))

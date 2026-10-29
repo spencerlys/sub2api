@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -323,4 +324,66 @@ func TestOwnerScopeJSONFieldMatchingIsCaseInsensitive(t *testing.T) {
 	req = CreateAccountRequest{}
 	require.NoError(t, json.Unmarshal([]byte(`{"group_idſ":[4]}`), &req))
 	require.Equal(t, []int64{4}, req.GroupIDs)
+}
+
+// 管理员把所有者账户加入共享分组后，所有者只能看到该分组的引用，看不到倍率等定价配置；
+// group_ids 必须保留，否则编辑表单保存时会丢掉共享分组。
+func TestOwnerAccountResponseHidesSharedGroupConfig(t *testing.T) {
+	svc := &ownerScopeTestService{groups: map[int64]*int64{1: ownerOf(7), 2: nil}}
+	h := &AccountHandler{adminService: svc}
+	ctx := adminaccess.WithPrincipal(context.Background(), &adminaccess.Principal{OwnerUserID: 7, Policy: adminaccess.OwnerPolicy()})
+	account := &dto.Account{
+		ID: 9, GroupIDs: []int64{1, 2},
+		Groups: []*dto.Group{
+			{ID: 1, Name: "own", Platform: "anthropic", RateMultiplier: 1, Status: "active"},
+			{ID: 2, Name: "shared", Platform: "anthropic", RateMultiplier: 3.5, Status: "active"},
+		},
+		AccountGroups: []dto.AccountGroup{
+			{AccountID: 9, GroupID: 1, Group: &dto.Group{ID: 1, Name: "own", RateMultiplier: 1}},
+			{AccountID: 9, GroupID: 2, Group: &dto.Group{ID: 2, Name: "shared", RateMultiplier: 3.5}},
+		},
+	}
+	item := AccountWithConcurrency{Account: account, ownerForeignGroups: h.ownerForeignGroupIDs(ctx, account)}
+	require.Equal(t, map[int64]struct{}{2: {}}, item.ownerForeignGroups)
+
+	raw, err := json.Marshal(item)
+	require.NoError(t, err)
+	var out struct {
+		GroupIDs      []int64          `json:"group_ids"`
+		Groups        []map[string]any `json:"groups"`
+		AccountGroups []struct {
+			GroupID int64          `json:"group_id"`
+			Group   map[string]any `json:"group"`
+		} `json:"account_groups"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &out))
+	require.Equal(t, []int64{1, 2}, out.GroupIDs)
+	require.Len(t, out.Groups, 2)
+	require.Equal(t, 1.0, out.Groups[0]["rate_multiplier"])
+	require.Equal(t, "shared", out.Groups[1]["name"])
+	require.NotContains(t, out.Groups[1], "rate_multiplier")
+	require.Len(t, out.AccountGroups, 2)
+	require.Contains(t, out.AccountGroups[0].Group, "rate_multiplier")
+	require.Equal(t, int64(2), out.AccountGroups[1].GroupID)
+	require.NotContains(t, out.AccountGroups[1].Group, "rate_multiplier")
+	require.NotContains(t, string(raw), "3.5")
+}
+
+func TestOwnerForeignGroupIDsScope(t *testing.T) {
+	account := &dto.Account{Groups: []*dto.Group{{ID: 1}, {ID: 2}}}
+	h := &AccountHandler{adminService: &ownerScopeTestService{groups: map[int64]*int64{1: ownerOf(7), 2: ownerOf(8)}}}
+	// 管理员请求不裁剪。
+	require.Nil(t, h.ownerForeignGroupIDs(context.Background(), account))
+	ctx := adminaccess.WithPrincipal(context.Background(), &adminaccess.Principal{OwnerUserID: 7, Policy: adminaccess.OwnerPolicy()})
+	// 其他所有者的分组同样视为他人分组；未登记（已删除）的分组也一样。
+	require.Equal(t, map[int64]struct{}{2: {}, 3: {}}, h.ownerForeignGroupIDs(ctx, account, &dto.Account{AccountGroups: []dto.AccountGroup{{GroupID: 3}}}))
+	// 归属查询失败时全部视为他人分组。
+	h.adminService = ownerLookupFailingService{}
+	require.Equal(t, map[int64]struct{}{1: {}, 2: {}}, h.ownerForeignGroupIDs(ctx, account))
+}
+
+type ownerLookupFailingService struct{ service.AdminService }
+
+func (ownerLookupFailingService) ResourceOwnerIDs(context.Context, string, []int64) (map[int64]*int64, error) {
+	return nil, service.ErrOwnerResourceLookup
 }

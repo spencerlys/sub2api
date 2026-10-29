@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -256,6 +257,42 @@ func (h *AccountHandler) ownerOwns(ctx context.Context, ownerID int64, kind stri
 		}
 	}
 	return true
+}
+
+// ownerForeignGroupIDs 返回这些账户所绑分组中不属于当前所有者的分组（例如管理员把所有者账户
+// 加入的共享分组），响应中只以引用输出。非所有者请求返回 nil；归属查询失败时全部视为他人分组。
+func (h *AccountHandler) ownerForeignGroupIDs(ctx context.Context, accounts ...*dto.Account) map[int64]struct{} {
+	ownerID := adminaccess.OwnerUserID(ctx)
+	if ownerID <= 0 {
+		return nil
+	}
+	var ids []int64
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		for _, group := range account.Groups {
+			if group != nil {
+				ids = append(ids, group.ID)
+			}
+		}
+		for _, accountGroup := range account.AccountGroups {
+			ids = append(ids, accountGroup.GroupID)
+		}
+	}
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	foreign := make(map[int64]struct{})
+	if len(ids) == 0 {
+		return foreign
+	}
+	owners, err := h.adminService.ResourceOwnerIDs(ctx, ownerResourceGroup, ids)
+	for _, id := range ids {
+		if owner := owners[id]; err != nil || owner == nil || *owner != ownerID {
+			foreign[id] = struct{}{}
+		}
+	}
+	return foreign
 }
 
 func ownerScopeAbort(c *gin.Context, status int, message string) {
