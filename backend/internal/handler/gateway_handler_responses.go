@@ -136,7 +136,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
-	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
+	// OpenAI 格式客户端等待槽位期间只发 SSE 注释 ping
+	slotHelper := h.concurrencyHelper.withPingFormat(SSEPingFormatComment)
+	userReleaseFunc, err := slotHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
 	if err != nil {
 		reqLog.Warn("gateway.responses.user_slot_acquire_failed", zap.Error(err))
 		h.handleConcurrencyError(c, err, "user", streamStarted)
@@ -186,6 +188,19 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
+	// 529 只冷却本请求内首个过载账号；账号槽位在 handler 返回时兜底释放（见 Messages 同名注释）
+	requestCtx = service.WithOverload529RequestScope(requestCtx)
+	c.Request = c.Request.WithContext(requestCtx)
+	accountSlotCtx, releaseAccountSlotCtx := accountSlotReleaseContext(c)
+	defer releaseAccountSlotCtx()
+	// 会话槽失败释放（见 Messages 同名注释）
+	sessionSlotAccounts := make(map[int64]*service.Account)
+	upstreamServedSession := false
+	defer func() {
+		if !upstreamServedSession {
+			h.releaseAccountSessions(sessionSlotAccounts, sessionHash)
+		}
+	}()
 
 	for {
 		if failoverClientGone(c) {
@@ -220,6 +235,8 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			default:
 				if fs.LastFailoverErr != nil {
 					h.handleResponsesFailoverExhausted(c, fs.LastFailoverErr, streamStarted)
+				} else if waitErr := fs.AccountWaitErr(); waitErr != nil {
+					h.handleConcurrencyError(c, waitErr, "account", streamStarted)
 				} else {
 					h.responsesErrorResponse(c, http.StatusBadGateway, "server_error", "All available accounts exhausted")
 				}
@@ -230,26 +247,20 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		// 4. Acquire account concurrency slot
-		accountReleaseFunc := selection.ReleaseFunc
-		if !selection.Acquired {
-			if selection.WaitPlan == nil {
-				markOpsRoutingCapacityLimited(c)
-				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
-				return
+		if !selection.Acquired && selection.WaitPlan == nil {
+			markOpsRoutingCapacityLimited(c)
+			h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts")
+			return
+		}
+		accountReleaseFunc, err := acquireSelectedAccountSlot(c, slotHelper, selection, reqStream, &streamStarted, reqLog)
+		if err != nil {
+			reqLog.Warn("gateway.responses.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+			// 等待超时/队列满：排除该账号重新选号，其他账号也无法承接时才返回 429
+			if fs.RecordAccountWaitFailure(account.ID, err) {
+				continue
 			}
-			accountReleaseFunc, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
-				c,
-				account.ID,
-				selection.WaitPlan.MaxConcurrency,
-				selection.WaitPlan.Timeout,
-				reqStream,
-				&streamStarted,
-			)
-			if err != nil {
-				reqLog.Warn("gateway.responses.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-				h.handleConcurrencyError(c, err, "account", streamStarted)
-				return
-			}
+			h.handleConcurrencyError(c, err, "account", streamStarted)
+			return
 		}
 		// 终检与准入后绑定必须使用选号结果携带的门：门安装在调度栈的局部
 		// ctx 上（composite/fallback 还可能解析出与入口分组不同的门），直接用
@@ -266,16 +277,19 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", profitVetoExhaustedMessage)
 				return
 			}
+			// 尝试被否决（从未转发），立即释放该账号的会话注册
+			h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionHash)
 			continue
 		}
 		account = latest
 		selection.Account = latest
+		sessionSlotAccounts[account.ID] = account
 		if selection.ProfitGateActive() {
 			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, apiKey.GroupID, sessionHash, account.ID); err != nil {
 				reqLog.Warn("gateway.responses.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			}
 		}
-		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+		accountReleaseFunc = wrapReleaseOnDone(accountSlotCtx, accountReleaseFunc)
 
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
@@ -352,6 +366,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 				switch action {
 				case FailoverContinue:
+					// 本次尝试已确定性失败，立即释放该账号的会话注册
+					h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionHash)
+					delete(sessionSlotAccounts, account.ID)
 					continue
 				case FailoverExhausted:
 					h.handleResponsesFailoverExhausted(c, fs.LastFailoverErr, streamStarted)
@@ -374,12 +391,16 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			)
 			if result != nil {
 				submitForwardUsage(result)
+				// 上游已接受并计量本次会话（流中断），会话槽保持既有语义
+				upstreamServedSession = true
 			}
 			return
 		}
 
+		h.incrementAccountRPMAfterForward(requestCtx, account, reqLog)
 		// 6. Record usage
 		submitForwardUsage(result)
+		upstreamServedSession = true
 		return
 	}
 }

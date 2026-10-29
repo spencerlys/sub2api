@@ -261,7 +261,9 @@ func TestGatewayService_Forward_PreOutputSSEOverloadedErrorUsesSemantic529(t *te
 	require.Empty(t, rec.Body.String(), "pre-output overload must remain eligible for account failover")
 }
 
-func TestGatewayService_Forward_PostOutputSSEOverloadedErrorKeepsExistingStatus(t *testing.T) {
+// 已向客户端输出后上游再发 event:error：无法换号，必须透传原始 error 帧（而非 403），
+// 并以普通错误返回已观测 usage 供计费；不冷却账号。
+func TestGatewayService_Forward_PostOutputSSEOverloadedErrorForwardsFrameAndBillsPartialUsage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -292,14 +294,17 @@ func TestGatewayService_Forward_PostOutputSSEOverloadedErrorKeepsExistingStatus(
 
 	result, err := svc.Forward(context.Background(), c, newAnthropicOAuthAccountForPartialUsageTest(), parsed)
 	require.Error(t, err)
-	require.Nil(t, result)
+	require.NotNil(t, result, "已输出后的流内错误必须带回部分 usage 以便计费")
+	require.Equal(t, 1, result.Usage.InputTokens)
 
 	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusForbidden, failoverErr.StatusCode)
-	require.JSONEq(t, errorJSON, string(failoverErr.ResponseBody))
+	require.False(t, errors.As(err, &failoverErr), "已输出后不得返回 failover 错误")
 	require.Zero(t, repo.tempCalls)
+	require.Zero(t, repo.overloadCalls, "已输出后的过载不冷却账号")
 	require.Contains(t, rec.Body.String(), "message_start")
+	require.Contains(t, rec.Body.String(), "event: error\ndata: "+errorJSON+"\n\n", "必须透传上游原始 error 帧")
+	require.NotContains(t, rec.Body.String(), "forbidden")
+	require.True(t, IsResponseCommitted(c), "handler 不得再追加兜底错误帧")
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardStreamMissingTerminalPreservesPartialUsage(t *testing.T) {

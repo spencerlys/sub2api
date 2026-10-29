@@ -423,7 +423,8 @@ func TestAnthropicCompatStreaming_UpstreamErrorEventEndsStreamWithoutWaiting(t *
 				} else {
 					var sseErr *sseStreamErrorEventError
 					require.ErrorAs(t, got.err, &sseErr)
-					require.Nil(t, got.result, "an upstream error event is not billed while the client is online")
+					require.NotNil(t, got.result, "an upstream error event after output still bills the observed usage")
+					require.Equal(t, 20, got.result.Usage.InputTokens)
 					require.Equal(t, 1, strings.Count(writer.Body.String(), compatStreamFailureMarkers[name]))
 					require.Contains(t, writer.Body.String(), "Overloaded")
 				}
@@ -456,7 +457,8 @@ func TestAnthropicCompatStreaming_UpstreamErrorEventStopsReadingBufferedEvents(t
 
 			var sseErr *sseStreamErrorEventError
 			require.ErrorAs(t, err, &sseErr)
-			require.Nil(t, result)
+			require.NotNil(t, result)
+			require.Equal(t, 20, result.Usage.InputTokens)
 			body := rec.Body.String()
 			require.NotContains(t, body, "LEAKED")
 			require.NotContains(t, body, compatStreamTerminalMarkers[name])
@@ -510,7 +512,7 @@ func TestForwardAsCompatStreaming_UpstreamErrorEventFailsOver(t *testing.T) {
 			wantStatus int
 		}{
 			{name: "before_output", stream: beforeOutput, wantStatus: 529},
-			{name: "after_output", stream: anthropicStreamWithInBandError("Overloaded", ""), wantStatus: http.StatusForbidden},
+			{name: "after_output", stream: anthropicStreamWithInBandError("Overloaded", ""), wantStatus: 0},
 		} {
 			t.Run(endpoint+"/"+tc.name, func(t *testing.T) {
 				gin.SetMode(gin.TestMode)
@@ -540,6 +542,14 @@ func TestForwardAsCompatStreaming_UpstreamErrorEventFailsOver(t *testing.T) {
 				}
 
 				var failoverErr *UpstreamFailoverError
+				if tc.wantStatus == 0 {
+					// 已输出后无法换号：按普通错误返回，并带回已观测 usage 供计费
+					require.Error(t, err)
+					require.False(t, errors.As(err, &failoverErr))
+					require.NotNil(t, result)
+					require.Equal(t, 20, result.Usage.InputTokens)
+					return
+				}
 				require.ErrorAs(t, err, &failoverErr)
 				require.Equal(t, tc.wantStatus, failoverErr.StatusCode)
 				require.Nil(t, result)

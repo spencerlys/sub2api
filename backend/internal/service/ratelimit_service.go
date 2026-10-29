@@ -2018,6 +2018,11 @@ func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, accou
 // handle529 处理529过载错误
 // 根据配置决定是否暂停账号调度及冷却时长
 func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
+	// 同一请求内只冷却首个 529 账号；count_tokens 的 529 不冷却（见 overload_request_scope.go）
+	if !claimOverload529Mark(ctx) {
+		slog.Info("account_529_mark_skipped", "account_id", account.ID, "reason", "request_scope")
+		return
+	}
 	var settings *OverloadCooldownSettings
 	if s.settingService != nil {
 		var err error

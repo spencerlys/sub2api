@@ -657,6 +657,10 @@ func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *ht
 	return nil, fmt.Errorf("upstream error: %d (retries exhausted) message=%s", resp.StatusCode, upstreamMsg)
 }
 
+// streamDrainAfterClientDisconnectTimeout 客户端断开后继续排空上游（以获取完整 usage 计费）的
+// 总时长上限：超时即放弃排空、按已观测 usage 计费，避免无人接收的流长期占用账号槽位。
+var streamDrainAfterClientDisconnectTimeout = 30 * time.Second
+
 // streamingResult 流式响应结果
 type streamingResult struct {
 	usage            *ClaudeUsage
@@ -858,6 +862,15 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 
 	pendingEventLines := make([]string, 0, 4)
 
+	// 客户端断开后继续排空上游的总时长上限（见 streamDrainAfterClientDisconnectTimeout）
+	var drainTimer *time.Timer
+	var drainCh <-chan time.Time
+	defer func() {
+		if drainTimer != nil {
+			drainTimer.Stop()
+		}
+	}()
+
 	processSSEEvent := func(lines []string) ([]string, string, *sseUsagePatch, error) {
 		if len(lines) == 0 {
 			return nil, "", nil, nil
@@ -1020,7 +1033,14 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 	}
 
 	for {
+		if clientDisconnected && drainTimer == nil {
+			drainTimer = time.NewTimer(streamDrainAfterClientDisconnectTimeout)
+			drainCh = drainTimer.C
+		}
 		select {
+		case <-drainCh:
+			logger.LegacyPrintf("service.gateway", "Stream drain after client disconnect exceeded %s, stop draining: account=%d model=%s", streamDrainAfterClientDisconnectTimeout, account.ID, originalModel)
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete: drain timeout after client disconnect")
 		case ev, ok := <-events:
 			if !ok {
 				// 上游完成，返回结果
@@ -1085,6 +1105,10 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				if err != nil {
 					if clientDisconnected {
 						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, nil
+					}
+					// 上游流内 error 事件：已观测到的 usage 随错误带回，已输出时由 Forward 计费
+					if usage.hasObservedTokens() {
+						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
 					}
 					return nil, err
 				}

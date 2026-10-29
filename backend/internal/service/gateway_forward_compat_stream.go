@@ -34,8 +34,9 @@ type anthropicCompatStream struct {
 	maxLineSize int
 	logPrefix   string
 	requestID   string
-	// clientGone 是请求 ctx 的 Done，客户端断开后为 nil。
+	// clientGone 是请求 ctx 的 Done；客户端断开后换为排空总时长上限的到期信号。
 	clientGone <-chan struct{}
+	drainTimer *time.Timer
 
 	clientDisconnected bool
 	sawMessageStart    bool
@@ -79,6 +80,9 @@ func newAnthropicCompatStream(cfg *config.Config, c *gin.Context, resp *http.Res
 }
 
 func (st *anthropicCompatStream) stop() {
+	if st.drainTimer != nil {
+		st.drainTimer.Stop()
+	}
 	st.pump.stop()
 }
 
@@ -89,7 +93,10 @@ func (st *anthropicCompatStream) markClientDisconnected() {
 		return
 	}
 	st.clientDisconnected = true
-	st.clientGone = nil
+	// 排空总时长受 streamDrainAfterClientDisconnectTimeout 限制，到期经 clientGone 通知 nextLine
+	drainDone := make(chan struct{})
+	st.drainTimer = time.AfterFunc(streamDrainAfterClientDisconnectTimeout, func() { close(drainDone) })
+	st.clientGone = drainDone
 	st.pump.enableInterval(anthropicCompatDisconnectDrainInterval)
 	logger.L().Info(st.logPrefix+" stream: client disconnected, continuing to drain upstream for billing",
 		zap.String("request_id", st.requestID),
@@ -109,8 +116,18 @@ func (st *anthropicCompatStream) nextLine() (string, bool) {
 			return line, true
 		}
 		if errors.Is(err, errAnthropicNativeClientGone) {
-			st.markClientDisconnected()
-			continue
+			if !st.clientDisconnected {
+				st.markClientDisconnected()
+				continue
+			}
+			// 断开后排空超过总时长上限：关闭上游 body，按已观测 usage 收尾
+			_ = st.body.Close()
+			st.readErr = err
+			logger.L().Warn(st.logPrefix+" stream: drain after client disconnect timed out",
+				zap.String("request_id", st.requestID),
+				zap.Duration("limit", streamDrainAfterClientDisconnectTimeout),
+			)
+			return "", false
 		}
 		if st.clientGone != nil {
 			select {
@@ -213,16 +230,13 @@ func (st *anthropicCompatStream) failure() *anthropicCompatStreamFailure {
 }
 
 // finishAnthropicCompatStreamFailure 按失败原因收尾，返回交给调用方的结果与错误。
-// 上游流内 error 事件与 /v1/messages 一致：不计费，返回 sseStreamErrorEventError
-// 由调用方转为 UpstreamFailoverError；尚未向客户端写出内容时不写终止错误，由
-// handler 换号重试。其余失败写出终止错误，并带上已观测到的 usage；未观测到任何
+// 上游流内 error 事件与 /v1/messages 一致：尚未向客户端写出内容时不写终止错误、
+// 不计费，返回 sseStreamErrorEventError 由调用方转为 UpstreamFailoverError 换号重试；
+// 已写出内容时与其余失败一样写出终止错误，并带上已观测到的 usage；未观测到任何
 // usage 时结果为 nil。
 func finishAnthropicCompatStreamFailure(c *gin.Context, writerSizeBeforeStream int, failure *anthropicCompatStreamFailure, result *ForwardResult, writeFailure func()) (*ForwardResult, error) {
 	var sseErr *sseStreamErrorEventError
-	if errors.As(failure.err, &sseErr) {
-		if c.Writer.Size() != writerSizeBeforeStream {
-			writeFailure()
-		}
+	if errors.As(failure.err, &sseErr) && c.Writer.Size() == writerSizeBeforeStream {
 		return nil, failure.err
 	}
 	writeFailure()

@@ -932,7 +932,9 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 		return hash
 	}
 
-	// 3. 最后 fallback: 使用 session上下文 + system + 所有消息的完整摘要串
+	// 3. 最后 fallback: 使用 session上下文 + system + 稳定会话前缀（system/developer + 首条 user 消息；
+	// Gemini contents 保持全部消息摘要）。多轮对话每轮只追加消息，若摘要全部消息则每轮 hash 都变，
+	// 粘性失效、prompt cache 落空。
 	var combined strings.Builder
 	// 混入请求上下文区分因子，避免不同用户相同消息产生相同 hash
 	if parsed.SessionContext != nil {
@@ -947,7 +949,11 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 		_, _ = combined.WriteString(systemText)
 	}
 	contentStart := combined.Len()
-	appendMessageTextsFromRaw(&combined, parsed.MessagesRaw())
+	if parsed.protocol == domain.PlatformGemini {
+		appendMessageTextsFromRaw(&combined, parsed.MessagesRaw())
+	} else {
+		appendMessagesSessionAnchorFromRaw(&combined, parsed.MessagesRaw())
+	}
 	if combined.Len() == contentStart {
 		appendResponsesSessionAnchorFromRaw(&combined, parsed.InputRaw())
 	}
@@ -1142,6 +1148,25 @@ func appendMessageTextsFromRaw(builder *strings.Builder, raw []byte) {
 			})
 		}
 		return true
+	})
+}
+
+// appendMessagesSessionAnchorFromRaw 与 appendResponsesSessionAnchorFromRaw 对齐：
+// 只取 messages 的稳定前缀——开头的 system/developer 消息 + 第一条其他角色消息（通常为首条 user）。
+func appendMessagesSessionAnchorFromRaw(builder *strings.Builder, raw []byte) {
+	if builder == nil || len(raw) == 0 {
+		return
+	}
+	messages := parseRawJSONView(raw)
+	if !messages.IsArray() {
+		return
+	}
+	messages.ForEach(func(_, msg gjson.Result) bool {
+		before := builder.Len()
+		appendMessageTextsFromRaw(builder, []byte("["+msg.Raw+"]"))
+		role := msg.Get("role").String()
+		// 首条非 system 消息无文本（如纯图片/工具结果）时继续向后取，避免锚点退化为仅 system
+		return role == "system" || role == "developer" || builder.Len() == before
 	})
 }
 

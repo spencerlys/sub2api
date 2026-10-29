@@ -203,7 +203,12 @@ func (s *GatewayService) ForwardAsResponses(
 		var sseErr *sseStreamErrorEventError
 		switch {
 		case errors.As(handleErr, &sseErr):
-			return nil, s.sseStreamErrorEventFailover(ctx, c, account, resp, sseErr.RawData, mappedModel, c.Writer.Size() != writerSizeBeforeStream)
+			// 已输出时无法换号：终止错误已写出，按普通错误返回已观测 usage 供计费
+			outputStarted := c.Writer.Size() != writerSizeBeforeStream
+			failoverErr := s.sseStreamErrorEventFailover(ctx, c, account, resp, sseErr.RawData, mappedModel, outputStarted)
+			if !outputStarted {
+				return nil, failoverErr
+			}
 		case errors.Is(handleErr, errAnthropicNativeStreamIdle) && s.rateLimitService != nil:
 			s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 		}
@@ -335,6 +340,15 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	}
 	if src.OutputTokens > 0 {
 		dst.OutputTokens = src.OutputTokens
+	}
+	// 缓存写入 TTL 明细（5m/1h 单价不同）；与上面的聚合字段一样仅非零时覆盖，避免后续事件清零
+	if src.CacheCreation != nil {
+		if src.CacheCreation.Ephemeral5mInputTokens > 0 {
+			dst.CacheCreation5mTokens = src.CacheCreation.Ephemeral5mInputTokens
+		}
+		if src.CacheCreation.Ephemeral1hInputTokens > 0 {
+			dst.CacheCreation1hTokens = src.CacheCreation.Ephemeral1hInputTokens
+		}
 	}
 }
 

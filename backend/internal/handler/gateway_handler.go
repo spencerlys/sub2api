@@ -643,6 +643,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 单账号分组首次 503 就不设模型限流标记，避免设 29s 限流导致后续请求连续快速失败；
 	// 是否单账号分组在 antigravity 账号遇到 503 或模型限流预检查时才判定。
 	c.Request = c.Request.WithContext(h.gatewayService.WithSingleAntigravityAccountGroupProbe(c.Request.Context(), currentAPIKey.GroupID))
+	// 529 只冷却本请求内首个过载账号，避免一次全局过载把 failover 链上的账号全部冷却。
+	c.Request = c.Request.WithContext(service.WithOverload529RequestScope(c.Request.Context()))
+	accountSlotCtx, releaseAccountSlotCtx := accountSlotReleaseContext(c)
+	defer releaseAccountSlotCtx()
 
 	// 会话槽失败释放：failover 链上每个选中的 Anthropic OAuth 账号都注册过同一会话
 	// （checkAndRegisterSession）。若请求最终失败（转发失败/客户端中断/换号耗尽），
@@ -655,10 +659,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		if upstreamServedSession {
 			return
 		}
-		// 客户端可能已断开、请求 ctx 已取消，用独立 ctx 执行释放
-		for _, acc := range sessionSlotAccounts {
-			h.gatewayService.ReleaseAccountSession(context.Background(), acc, sessionKey)
-		}
+		h.releaseAccountSessions(sessionSlotAccounts, sessionKey)
 	}()
 
 	for {
@@ -717,6 +718,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				default: // FailoverExhausted
 					if fs.LastFailoverErr != nil {
 						h.handleFailoverExhausted(c, fs.LastFailoverErr, platform, streamStarted)
+					} else if waitErr := fs.AccountWaitErr(); waitErr != nil {
+						// 等待失败后换号重选也无账号可用：仍按并发限制响应
+						h.handleConcurrencyError(c, waitErr, "account", streamStarted)
 					} else {
 						h.handleFailoverExhaustedSimple(c, 502, streamStarted)
 					}
@@ -753,56 +757,25 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			// 3. 获取账号并发槽位
-			accountReleaseFunc := selection.ReleaseFunc
-			if !selection.Acquired {
-				if selection.WaitPlan == nil {
-					markOpsRoutingCapacityLimited(c)
-					reqLog.Warn("gateway.select_account_no_slot_no_wait_plan",
-						zap.Int64("account_id", account.ID),
-						zap.String("model", reqModel),
-						zap.String("platform", platform),
-					)
-					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
-					return
-				}
-				accountWaitCounted := false
-				canWait, err := h.concurrencyHelper.IncrementAccountWaitCount(c.Request.Context(), account.ID, selection.WaitPlan.MaxWaiting)
-				if err != nil {
-					reqLog.Warn("gateway.account_wait_counter_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-				} else if !canWait {
-					reqLog.Info("gateway.account_wait_queue_full",
-						zap.Int64("account_id", account.ID),
-						zap.Int("max_waiting", selection.WaitPlan.MaxWaiting),
-					)
-					h.handleStreamingAwareErrorWithCode(c, http.StatusTooManyRequests, "rate_limit_error", gatewayQueueFullCode, "Too many pending requests, please retry later", streamStarted)
-					return
-				}
-				if err == nil && canWait {
-					accountWaitCounted = true
-				}
-				releaseWait := func() {
-					if accountWaitCounted {
-						h.concurrencyHelper.DecrementAccountWaitCount(c.Request.Context(), account.ID)
-						accountWaitCounted = false
-					}
-				}
-
-				accountReleaseFunc, err = h.concurrencyHelper.AcquireAccountSlotWithWaitTimeout(
-					c,
-					account.ID,
-					selection.WaitPlan.MaxConcurrency,
-					selection.WaitPlan.Timeout,
-					reqStream,
-					&streamStarted,
+			if !selection.Acquired && selection.WaitPlan == nil {
+				markOpsRoutingCapacityLimited(c)
+				reqLog.Warn("gateway.select_account_no_slot_no_wait_plan",
+					zap.Int64("account_id", account.ID),
+					zap.String("model", reqModel),
+					zap.String("platform", platform),
 				)
-				if err != nil {
-					reqLog.Warn("gateway.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-					releaseWait()
-					h.handleConcurrencyError(c, err, "account", streamStarted)
-					return
+				h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "No available accounts", streamStarted)
+				return
+			}
+			accountReleaseFunc, err := acquireSelectedAccountSlot(c, h.concurrencyHelper, selection, reqStream, &streamStarted, reqLog)
+			if err != nil {
+				reqLog.Warn("gateway.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+				// 等待超时/队列满（多为粘性账号忙）：排除该账号重新选号，其他账号也无法承接时才返回 429
+				if fs.RecordAccountWaitFailure(account.ID, err) {
+					continue
 				}
-				// Slot acquired: no longer waiting in queue.
-				releaseWait()
+				h.handleConcurrencyError(c, err, "account", streamStarted)
+				return
 			}
 			// 终检与准入后绑定使用选号结果携带的门（见 responses 同名注释）。
 			admissionCtx := service.ContextWithSelectionProfitGate(c.Request.Context(), selection)
@@ -834,8 +807,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					reqLog.Warn("gateway.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
-			// 账号槽位/等待计数需要在超时或断开时安全回收
-			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
+			// 账号槽位兜底回收：在 handler 返回时（而非客户端断开时）释放——客户端断开后
+			// 流式转发仍在排空上游计费，槽位须持有到 Forward 返回
+			accountReleaseFunc = wrapReleaseOnDone(accountSlotCtx, accountReleaseFunc)
 
 			// ===== 用户消息串行队列 START =====
 			var queueRelease func()
@@ -1111,13 +1085,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			// RPM 计数递增（Forward 成功后）
-			// 注意：TOCTOU 竞态是已知且可接受的设计权衡，与 WindowCost 一致的 soft-limit 模式。
-			// 在高并发下可能短暂超出 RPM 限制，但不会导致请求失败。
-			if account.IsAnthropicOAuthOrSetupToken() && account.GetBaseRPM() > 0 {
-				if err := h.gatewayService.IncrementAccountRPM(c.Request.Context(), account.ID); err != nil {
-					reqLog.Warn("gateway.rpm_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-				}
-			}
+			h.incrementAccountRPMAfterForward(c.Request.Context(), account, reqLog)
 
 			// 绑定粘性会话（成功转发后绑定/刷新）
 			// - 无现有绑定（首次请求）：创建绑定

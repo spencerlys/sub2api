@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -49,6 +50,9 @@ const (
 	// 取值与 maxAccountSwitches 默认值一致：混合定价的大分组仍有充分重选机会，
 	// 同时把整池越线时的无谓选号开销限制在常数级。
 	maxProfitVetoAttempts = 10
+	// maxOverloadSwitches 单次请求内由 529 过载触发的换号次数上限。
+	// 529 多为上游全局过载，继续换号只会把更多账号拖入过载，不会提高成功率。
+	maxOverloadSwitches = 1
 )
 
 // profitVetoExhaustedMessage 是利润否决次数耗尽时返回给客户端的文案。
@@ -139,6 +143,10 @@ type FailoverState struct {
 	profitVetoedAccountIDs map[int64]struct{}
 	// profitVetoCount 本次请求累计的利润否决次数，用于 maxProfitVetoAttempts 上限。
 	profitVetoCount int
+	// overloadSwitchCount 本次请求由 529 触发的换号次数，用于 maxOverloadSwitches 上限。
+	overloadSwitchCount int
+	// accountWaitErr 本次请求首次账号槽位等待失败（超时/队列满）的错误；非 nil 表示已换号重选过。
+	accountWaitErr error
 }
 
 // NewFailoverState 创建 failover 状态
@@ -186,6 +194,31 @@ func (s *FailoverState) allExclusionsAreProfitVetoed() bool {
 		}
 	}
 	return true
+}
+
+// RecordAccountWaitFailure 处理选中账号的槽位等待失败（等待超时或等待队列已满）：
+// 首次发生时把该账号加入排除列表并返回 true，调用方应重新选号而不是直接 429；
+// 已重选过一次，或错误不属于等待失败（如客户端断开）时返回 false，调用方按原逻辑返回错误。
+func (s *FailoverState) RecordAccountWaitFailure(accountID int64, err error) bool {
+	if s.accountWaitErr != nil || !isAccountWaitFailure(err) {
+		return false
+	}
+	s.accountWaitErr = err
+	s.FailedAccountIDs[accountID] = struct{}{}
+	return true
+}
+
+// AccountWaitErr 返回 RecordAccountWaitFailure 记录的等待失败；重选后已无账号可用时，
+// 调用方据此仍按并发错误（429）响应。
+func (s *FailoverState) AccountWaitErr() error { return s.accountWaitErr }
+
+func isAccountWaitFailure(err error) bool {
+	var queueFullErr *WaitQueueFullError
+	if errors.As(err, &queueFullErr) {
+		return true
+	}
+	var concurrencyErr *ConcurrencyError
+	return errors.As(err, &concurrencyErr) && concurrencyErr.IsTimeout
 }
 
 // HandleFailoverError 处理 UpstreamFailoverError，返回下一步动作。
@@ -244,6 +277,12 @@ func (s *FailoverState) HandleFailoverError(
 	// 检查是否耗尽
 	if s.SwitchCount >= s.MaxSwitches {
 		return FailoverExhausted
+	}
+	if failoverErr.StatusCode == 529 {
+		if s.overloadSwitchCount >= maxOverloadSwitches {
+			return FailoverExhausted
+		}
+		s.overloadSwitchCount++
 	}
 
 	// 递增切换计数

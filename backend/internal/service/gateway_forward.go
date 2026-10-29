@@ -829,7 +829,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if err != nil {
 			var sseErr *sseStreamErrorEventError
 			if errors.As(err, &sseErr) {
-				return nil, s.sseStreamErrorEventFailover(ctx, c, account, resp, sseErr.RawData, reqModel, c.Writer.Size() != writerSizeBeforeStream)
+				outputStarted := c.Writer.Size() != writerSizeBeforeStream
+				failoverErr := s.sseStreamErrorEventFailover(ctx, c, account, resp, sseErr.RawData, reqModel, outputStarted)
+				if !outputStarted {
+					return nil, failoverErr
+				}
+				// 已向客户端输出内容，无法换号：透传上游原始 error 帧，并以普通错误返回已观测 usage 供计费。
+				writeUpstreamSSEErrorFrame(c, sseErr.RawData, failoverErr.StatusCode)
+				if partial := partialStreamUsageResult(c, resp, streamResult, originalModel, mappedModel, startTime, err); partial != nil {
+					return partial, err
+				}
+				return nil, err
 			}
 			// 流中断（缺失 terminal 事件、读错误、数据间隔超时等）时保留已观测到的
 			// usage 与错误一起返回，handler 在错误处理完成后照常提交 usage 记录。
@@ -1024,13 +1034,12 @@ func (s *GatewayService) isStickyAccountUpstreamRestricted(ctx context.Context, 
 }
 
 // sseStreamErrorEventFailover 把上游 HTTP 200 + SSE 流体内的 event:error 帧转为
-// UpstreamFailoverError：尚未向客户端写出内容且错误类型为 overloaded_error 时按 529
-// 处理并触发账号侧副作用，其余按 403；同时登记 stream_error 运维记录。
+// UpstreamFailoverError：状态码按 error.type 映射（见 sseStreamErrorEventStatus）；尚未向客户端
+// 写出内容且为 overloaded_error 时触发 529 账号侧副作用；同时登记 stream_error 运维记录。
 func (s *GatewayService) sseStreamErrorEventFailover(ctx context.Context, c *gin.Context, account *Account, resp *http.Response, rawData, model string, outputStarted bool) *UpstreamFailoverError {
 	body := []byte(rawData)
-	semanticStatus := http.StatusForbidden
-	if !outputStarted && gjson.GetBytes(body, "error.type").String() == "overloaded_error" {
-		semanticStatus = 529
+	semanticStatus := sseStreamErrorEventStatus(body)
+	if !outputStarted && semanticStatus == 529 {
 		syntheticResp := &http.Response{
 			StatusCode: semanticStatus,
 			Header:     resp.Header.Clone(),
@@ -1075,4 +1084,35 @@ func (s *GatewayService) sseStreamErrorEventFailover(ctx context.Context, c *gin
 		StatusCode:   semanticStatus,
 		ResponseBody: body,
 	}
+}
+
+// sseStreamErrorEventStatus 把流内 error 帧的 error.type 映射为语义状态码，
+// 未识别的类型保持原有的 403。
+func sseStreamErrorEventStatus(body []byte) int {
+	switch gjson.GetBytes(body, "error.type").String() {
+	case "overloaded_error":
+		return 529
+	case "rate_limit_error":
+		return http.StatusTooManyRequests
+	case "api_error":
+		return http.StatusBadGateway
+	default:
+		return http.StatusForbidden
+	}
+}
+
+// writeUpstreamSSEErrorFrame 在已开始输出的流上透传上游原始 error 帧并标记响应已提交，
+// handler 不再追加兜底错误。
+func writeUpstreamSSEErrorFrame(c *gin.Context, rawData string, status int) {
+	if strings.TrimSpace(rawData) == "" {
+		rawData = `{"type":"error","error":{"type":"api_error","message":"upstream stream error"}}`
+	}
+	errType := gjson.Get(rawData, "error.type").String()
+	MarkOpsStreamError(c, errType, sanitizeUpstreamErrorMessage(extractUpstreamErrorMessage([]byte(rawData))), status)
+	if _, err := fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", rawData); err == nil {
+		if flusher, ok := c.Writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+	MarkResponseCommitted(c)
 }

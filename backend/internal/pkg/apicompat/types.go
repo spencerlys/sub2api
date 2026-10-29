@@ -181,6 +181,14 @@ type AnthropicUsage struct {
 	PromptTokensDetails   *AnthropicPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
 	PromptCacheHitTokens  *int                          `json:"prompt_cache_hit_tokens,omitempty"`
 	PromptCacheMissTokens *int                          `json:"prompt_cache_miss_tokens,omitempty"`
+	// CacheCreation 是 Anthropic 嵌套的缓存写入 TTL 明细；5m/1h 单价不同，计费必须保留。
+	CacheCreation *AnthropicCacheCreationUsage `json:"cache_creation,omitempty"`
+}
+
+// AnthropicCacheCreationUsage 是 usage.cache_creation 的 5m/1h 缓存写入明细。
+type AnthropicCacheCreationUsage struct {
+	Ephemeral5mInputTokens int `json:"ephemeral_5m_input_tokens"`
+	Ephemeral1hInputTokens int `json:"ephemeral_1h_input_tokens"`
 }
 
 // ---------------------------------------------------------------------------

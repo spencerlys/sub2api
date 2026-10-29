@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -203,7 +204,8 @@ func TestGatewayCompatibilityHandlers_IdleBeforeAnyEventWritesStreamError(t *tes
 	}
 }
 
-func TestGatewayCompatibilityHandlers_UpstreamErrorEventAfterOutputIsNotBilled(t *testing.T) {
+// 已输出后上游流内 error 事件无法换号：写出一个终止错误，并按已观测 usage 计费一次。
+func TestGatewayCompatibilityHandlers_UpstreamErrorEventAfterOutputBillsObservedUsage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstreamError := "event: error\n" + `data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}` + "\n\n"
 	for _, endpoint := range []string{"chat/completions", "responses"} {
@@ -220,10 +222,15 @@ func TestGatewayCompatibilityHandlers_UpstreamErrorEventAfterOutputIsNotBilled(t
 			require.Contains(t, out, "Overloaded")
 			require.NotContains(t, out, successMarker)
 
+			select {
+			case log := <-run.usageRepo.created:
+				require.Equal(t, 12, log.InputTokens, "observed usage must be billed")
+			case <-time.After(5 * time.Second):
+				t.Fatal("usage was not recorded for the partial stream")
+			}
 			run.billingRepo.mu.Lock()
 			defer run.billingRepo.mu.Unlock()
-			require.Empty(t, run.billingRepo.commands, "an upstream error event is not billed while the client is online")
-			require.Empty(t, run.usageRepo.created)
+			require.Len(t, run.billingRepo.commands, 1)
 		})
 	}
 }

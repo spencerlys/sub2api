@@ -182,6 +182,17 @@ func NewConcurrencyHelper(concurrencyService *service.ConcurrencyService, pingFo
 	}
 }
 
+// withPingFormat 返回仅等待期 ping 格式不同的副本（共享并发服务）。
+// OpenAI 格式入口（chat completions / responses）用 SSEPingFormatComment，避免向其客户端写 Claude ping。
+func (h *ConcurrencyHelper) withPingFormat(format SSEPingFormat) *ConcurrencyHelper {
+	if h == nil || h.pingFormat == format {
+		return h
+	}
+	clone := *h
+	clone.pingFormat = format
+	return &clone
+}
+
 // wrapReleaseOnDone ensures release runs at most once and still triggers on context cancellation.
 // 用于避免客户端断开或上游超时导致的并发槽位泄漏。
 // 优化：基于 context.AfterFunc 注册回调，避免每请求额外守护 goroutine。
