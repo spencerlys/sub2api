@@ -156,7 +156,7 @@ func newTestGatewayServiceForBeta(injectBetaForAPIKey bool) *GatewayService {
 
 func TestComputeFinalAnthropicBeta_OAuthMimic_NonHaiku_IncludesContextManagement(t *testing.T) {
 	s := newTestGatewayServiceForBeta(false)
-	final, ok := s.computeFinalAnthropicBeta("oauth", true, "claude-sonnet-4-6", http.Header{}, []byte(`{}`), nil)
+	final, ok := s.computeFinalAnthropicBeta("oauth", true, "claude-sonnet-4-6", http.Header{}, []byte(`{}`), nil, nil)
 	require.True(t, ok)
 	require.True(t, anthropicBetaTokensContains(final, claude.BetaContextManagement),
 		"OAuth mimic non-haiku 必须注入完整 CC mimicry beta，含 context-management-2025-06-27")
@@ -168,7 +168,7 @@ func TestComputeFinalAnthropicBeta_OAuthMimic_NonHaiku_IncludesContextManagement
 
 func TestComputeFinalAnthropicBeta_OAuthMimic_Haiku_IncludesFullClaudeCodeBetas(t *testing.T) {
 	s := newTestGatewayServiceForBeta(false)
-	final, ok := s.computeFinalAnthropicBeta("oauth", true, "claude-haiku-4-5", http.Header{}, []byte(`{}`), nil)
+	final, ok := s.computeFinalAnthropicBeta("oauth", true, "claude-haiku-4-5", http.Header{}, []byte(`{}`), nil, nil)
 	require.True(t, ok)
 	require.Equal(t, strings.Join(claude.FullClaudeCodeMimicryBetas(), ","), final)
 	for _, beta := range claude.FullClaudeCodeMimicryBetas() {
@@ -182,7 +182,7 @@ func TestComputeFinalAnthropicBeta_OAuthMimic_IgnoresClientBeta(t *testing.T) {
 	s := newTestGatewayServiceForBeta(false)
 	hdr := http.Header{}
 	hdr.Set("anthropic-beta", "custom-experimental-beta")
-	final, ok := s.computeFinalAnthropicBeta("oauth", true, "claude-sonnet-4-6", hdr, []byte(`{}`), nil)
+	final, ok := s.computeFinalAnthropicBeta("oauth", true, "claude-sonnet-4-6", hdr, []byte(`{}`), nil, nil)
 	require.True(t, ok)
 	require.False(t, strings.Contains(final, "custom-experimental-beta"),
 		"mimic 路径必须忽略客户端 anthropic-beta header")
@@ -191,7 +191,7 @@ func TestComputeFinalAnthropicBeta_OAuthMimic_IgnoresClientBeta(t *testing.T) {
 
 	// 显式 dropSet 仍能移除 mimic 注入的该 beta，且不会因此放行客户端未知 beta。
 	dropped, ok := s.computeFinalAnthropicBeta("oauth", true, "claude-sonnet-4-6", hdr, []byte(`{}`),
-		map[string]struct{}{claude.BetaMidConversationOutputConfig: {}})
+		map[string]struct{}{claude.BetaMidConversationOutputConfig: {}}, nil)
 	require.True(t, ok)
 	require.False(t, anthropicBetaTokensContains(dropped, claude.BetaMidConversationOutputConfig),
 		"显式 dropSet 必须能移除新增的 mimic beta")
@@ -204,7 +204,7 @@ func TestComputeFinalAnthropicBeta_OAuthTransparent_NonHaiku_PreservesClientCont
 	s := newTestGatewayServiceForBeta(false)
 	hdr := http.Header{}
 	hdr.Set("anthropic-beta", "claude-code-20250219,oauth-2025-04-20,context-management-2025-06-27")
-	final, ok := s.computeFinalAnthropicBeta("oauth", false, "claude-sonnet-4-6", hdr, []byte(`{}`), nil)
+	final, ok := s.computeFinalAnthropicBeta("oauth", false, "claude-sonnet-4-6", hdr, []byte(`{}`), nil, nil)
 	require.True(t, ok)
 	require.True(t, anthropicBetaTokensContains(final, claude.BetaContextManagement))
 }
@@ -215,7 +215,7 @@ func TestComputeFinalAnthropicBeta_OAuthTransparent_Haiku_RealCCPreservesContext
 	s := newTestGatewayServiceForBeta(false)
 	hdr := http.Header{}
 	hdr.Set("anthropic-beta", "claude-code-20250219,oauth-2025-04-20,context-management-2025-06-27,interleaved-thinking-2025-05-14")
-	final, ok := s.computeFinalAnthropicBeta("oauth", false, "claude-haiku-4-5", hdr, []byte(`{}`), nil)
+	final, ok := s.computeFinalAnthropicBeta("oauth", false, "claude-haiku-4-5", hdr, []byte(`{}`), nil, nil)
 	require.True(t, ok)
 	require.True(t, anthropicBetaTokensContains(final, claude.BetaContextManagement),
 		"真 CC + haiku + 客户端带 context-management beta → 透传必须保留")
@@ -225,7 +225,7 @@ func TestComputeFinalAnthropicBeta_APIKey_PassesClientBetaThroughDropSet(t *test
 	s := newTestGatewayServiceForBeta(false)
 	hdr := http.Header{}
 	hdr.Set("anthropic-beta", "oauth-2025-04-20,custom-beta")
-	final, ok := s.computeFinalAnthropicBeta("apikey", false, "claude-sonnet-4-6", hdr, []byte(`{}`), nil)
+	final, ok := s.computeFinalAnthropicBeta("apikey", false, "claude-sonnet-4-6", hdr, []byte(`{}`), nil, nil)
 	require.True(t, ok)
 	require.True(t, anthropicBetaTokensContains(final, "oauth-2025-04-20"))
 	require.True(t, anthropicBetaTokensContains(final, "custom-beta"))
@@ -233,7 +233,7 @@ func TestComputeFinalAnthropicBeta_APIKey_PassesClientBetaThroughDropSet(t *test
 
 func TestComputeFinalAnthropicBeta_APIKey_NoClientBetaInjectOff_ShouldNotSet(t *testing.T) {
 	s := newTestGatewayServiceForBeta(false)
-	final, ok := s.computeFinalAnthropicBeta("apikey", false, "claude-sonnet-4-6", http.Header{}, []byte(`{}`), nil)
+	final, ok := s.computeFinalAnthropicBeta("apikey", false, "claude-sonnet-4-6", http.Header{}, []byte(`{}`), nil, nil)
 	require.False(t, ok, "API-key + 客户端未传 + InjectBetaForAPIKey 关 → 不应主动设置 anthropic-beta")
 	require.Equal(t, "", final)
 }
@@ -241,7 +241,7 @@ func TestComputeFinalAnthropicBeta_APIKey_NoClientBetaInjectOff_ShouldNotSet(t *
 func TestComputeFinalAnthropicBeta_APIKeyHaiku_StillUsesAPIKeyBetas(t *testing.T) {
 	s := newTestGatewayServiceForBeta(true)
 	body := []byte(`{"model":"claude-haiku-4-5","thinking":{"type":"enabled"},"messages":[]}`)
-	final, ok := s.computeFinalAnthropicBeta("apikey", false, "claude-haiku-4-5", http.Header{}, body, nil)
+	final, ok := s.computeFinalAnthropicBeta("apikey", false, "claude-haiku-4-5", http.Header{}, body, nil, nil)
 	require.True(t, ok)
 	require.Equal(t, claude.APIKeyHaikuBetaHeader, final)
 	require.False(t, anthropicBetaTokensContains(final, claude.BetaOAuth))
@@ -290,7 +290,7 @@ func TestComputeFinalAnthropicBeta_OAuthMimic_IgnoresClientBetaExplicit(t *testi
 	s := newTestGatewayServiceForBeta(false)
 	hdr := http.Header{}
 	hdr.Set("anthropic-beta", "custom-experimental-beta")
-	final, ok := s.computeFinalAnthropicBeta("oauth", true, "claude-sonnet-4-6", hdr, []byte(`{}`), nil)
+	final, ok := s.computeFinalAnthropicBeta("oauth", true, "claude-sonnet-4-6", hdr, []byte(`{}`), nil, nil)
 	require.True(t, ok)
 	require.False(t, anthropicBetaTokensContains(final, "custom-experimental-beta"),
 		"messages mimic 原代码跳过白名单透传 → 客户端 beta 不进入计算。"+

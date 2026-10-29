@@ -37,7 +37,8 @@ type AnthropicRequest struct {
 
 // AnthropicOutputConfig controls output generation parameters.
 type AnthropicOutputConfig struct {
-	Effort string `json:"effort,omitempty"` // "low" | "medium" | "high" | "max"
+	Effort string          `json:"effort,omitempty"` // "low" | "medium" | "high" | "max"
+	Format json.RawMessage `json:"format,omitempty"` // structured outputs: {"type":"json_schema","schema":{...}}
 }
 
 // AnthropicThinking configures extended thinking in the Anthropic API.

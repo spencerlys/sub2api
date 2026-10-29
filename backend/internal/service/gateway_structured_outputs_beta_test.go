@@ -34,7 +34,7 @@ func TestStructuredOutputsBetaOAuthMimic(t *testing.T) {
 			header := http.Header{}
 			header.Set("anthropic-beta", tc.header)
 			body := []byte(`{"output_format":{"type":"json_schema","schema":{"type":"object"}}}`)
-			got, set := s.computeFinalAnthropicBeta("oauth", true, "claude-sonnet-5", header, body, tc.drop)
+			got, set := s.computeFinalAnthropicBeta("oauth", true, "claude-sonnet-5", header, body, tc.drop, nil)
 			require.True(t, set)
 			require.Equal(t, tc.want, containsBetaToken(got, beta))
 			require.False(t, containsBetaToken(got, "custom-beta"))

@@ -208,6 +208,7 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 				bodyBytes = normalizedBody
 				jsonStr = *(*string)(unsafe.Pointer(&bodyBytes))
 				parsed.Model = normalizedModel
+				parsed.LongContextRequested = true
 			}
 		}
 	}
@@ -291,6 +292,10 @@ type ParsedRequest struct {
 	Speed           string          // Anthropic speed（当前可计费值为 "fast"）
 	MaxTokens       int             // max_tokens 值（用于探测请求拦截）
 	SessionContext  *SessionContext // 可选：请求上下文区分因子（nil 时行为不变）
+
+	// LongContextRequested 入站 model 带 Claude Code [1m] 后缀（已归一化剥离）；
+	// 视同请求 context-1m beta，是否放行由 beta 策略决定。Body 替换后不清除。
+	LongContextRequested bool
 
 	protocol      string    // 当前 Body 的协议格式，用于 Body 替换后刷新 raw range
 	systemRange   jsonRange // system/systemInstruction.parts 的 raw JSON 范围，绑定 Body 当前内容

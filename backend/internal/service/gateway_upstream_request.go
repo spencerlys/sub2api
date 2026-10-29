@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -137,10 +138,11 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	//      被 Anthropic 判 third-party）
 	//   4) NewRequest（body 至此最终敲定）
 	//   5) 透传白名单 / fingerprint / mimic header / 写入 finalBeta
-	policyFilterSet := s.getBetaPolicyFilterSet(ctx, c, account, modelID)
+	policyFilterSet, policyPassSet := s.getBetaPolicySets(ctx, c, account, modelID)
 	effectiveDropSet := mergeDropSets(policyFilterSet)
+	passBetas := policyPassBetas(getHeaderRaw(clientHeaders, "anthropic-beta"), c != nil && c.GetBool(longContextRequestedKey), policyPassSet)
 	finalBetaHeader, finalBetaShouldSet := s.computeFinalAnthropicBeta(
-		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet,
+		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet, passBetas,
 	)
 
 	// 账号覆写了 anthropic-beta 时，覆写值即最终上游值（由下方 ApplyHeaderOverrides 写入）：
@@ -573,6 +575,10 @@ func mergeAnthropicBetaDropping(required []string, incoming string, drop map[str
 // clientHeaders 是客户端原始 HTTP header（通常为 c.Request.Header）；nil 时按“客户端
 // 未传”处理。body 是已经 metadata 重写 / billing version sync 之后但未 sanitize 上游
 // 不兼容字段之前的版本。
+//
+// passBetas 是客户端请求（header 或 [1m] 后缀）且 beta 策略对当前账号范围 +
+// 模型显式 pass 的 token（见 policyPassBetas）：mimic 路径据此额外保留，其余路径
+// 补齐缺失项；effectiveDropSet 仍优先。
 func (s *GatewayService) computeFinalAnthropicBeta(
 	tokenType string,
 	mimicClaudeCode bool,
@@ -580,6 +586,7 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 	clientHeaders http.Header,
 	body []byte,
 	effectiveDropSet map[string]struct{},
+	passBetas []string,
 ) (beta string, shouldSet bool) {
 	defer func() { beta = filterSonnet55ToolsetBeta(beta, body, modelID) }()
 	clientBeta := ""
@@ -602,24 +609,67 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 					incomingBetas = append(incomingBetas, token)
 				}
 			}
+			// Admin beta policy can opt further client betas in (e.g. context-1m).
+			incomingBetas = append(incomingBetas, passBetas...)
 			return mergeAnthropicBetaDropping(claude.FullClaudeCodeMimicryBetas(), strings.Join(incomingBetas, ","), effectiveDropSet), true
 		}
 		// 真 Claude Code 客户端透传路径
-		return stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBeta), effectiveDropSet), true
+		return appendBetaTokensDropping(stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBeta), effectiveDropSet), passBetas, effectiveDropSet), true
 	}
 
 	// API-key accounts
 	if clientBeta != "" {
-		return stripBetaTokensWithSet(clientBeta, effectiveDropSet), true
+		return appendBetaTokensDropping(stripBetaTokensWithSet(clientBeta, effectiveDropSet), passBetas, effectiveDropSet), true
 	}
 	if s.cfg != nil && s.cfg.Gateway.InjectBetaForAPIKey {
 		if requestNeedsBetaFeatures(body) {
 			if beta := defaultAPIKeyBetaHeader(body); beta != "" {
-				return beta, true
+				return appendBetaTokensDropping(beta, passBetas, effectiveDropSet), true
 			}
 		}
 	}
+	if beta := appendBetaTokensDropping("", passBetas, effectiveDropSet); beta != "" {
+		return beta, true
+	}
 	return "", false
+}
+
+// appendBetaTokensDropping 向 header 末尾补齐 tokens 中尚未出现且不在 drop 中的项；
+// 无需补齐时原样返回 header。
+func appendBetaTokensDropping(header string, tokens []string, drop map[string]struct{}) string {
+	for _, token := range tokens {
+		if _, dropped := drop[token]; dropped || containsBetaToken(header, token) {
+			continue
+		}
+		if header == "" {
+			header = token
+		} else {
+			header += "," + token
+		}
+	}
+	return header
+}
+
+// policyPassBetas 返回客户端请求的 beta token（anthropic-beta header，以及
+// longContextRequested 隐含的 context-1m）中被 beta 策略显式 pass 的部分，去重保序。
+// 无显式 pass 规则的 token 不在此列，维持各路径原有行为。
+func policyPassBetas(clientBeta string, longContextRequested bool, passSet map[string]struct{}) []string {
+	if len(passSet) == 0 {
+		return nil
+	}
+	requested := strings.Split(clientBeta, ",")
+	if longContextRequested {
+		requested = append(requested, claude.BetaContext1M)
+	}
+	var out []string
+	for _, token := range requested {
+		token = strings.TrimSpace(token)
+		if _, pass := passSet[token]; !pass || slices.Contains(out, token) {
+			continue
+		}
+		out = append(out, token)
+	}
+	return out
 }
 
 // computeFinalCountTokensAnthropicBeta 是 count_tokens 路径上 anthropic-beta header 的
@@ -720,6 +770,7 @@ func (e *BetaBlockedError) Error() string { return e.Message }
 type betaPolicyResult struct {
 	blockErr  *BetaBlockedError   // non-nil if a block rule matched
 	filterSet map[string]struct{} // tokens to filter (may be nil)
+	passSet   map[string]struct{} // tokens with an explicit pass for this scope + model (may be nil)
 }
 
 // evaluateBetaPolicy loads settings once and evaluates all rules against the given request.
@@ -753,6 +804,14 @@ func (s *GatewayService) evaluateBetaPolicy(ctx context.Context, betaHeader stri
 				result.filterSet = make(map[string]struct{})
 			}
 			result.filterSet[rule.BetaToken] = struct{}{}
+		case BetaPolicyActionPass:
+			// A whitelist miss without fallback_action is a fail-open default, not an explicit pass.
+			if len(rule.ModelWhitelist) == 0 || rule.FallbackAction != "" || matchModelWhitelist(model, rule.ModelWhitelist) {
+				if result.passSet == nil {
+					result.passSet = make(map[string]struct{})
+				}
+				result.passSet[rule.BetaToken] = struct{}{}
+			}
 		}
 	}
 	return result
@@ -780,19 +839,35 @@ func mergeDropSets(policySet map[string]struct{}, extra ...string) map[string]st
 // betaPolicyFilterSetKey is the gin.Context key for caching the policy filter set within a request.
 const betaPolicyFilterSetKey = "betaPolicyFilterSet"
 
+// betaPolicyPassSetKey caches betaPolicyResult.passSet next to betaPolicyFilterSetKey.
+const betaPolicyPassSetKey = "betaPolicyPassSet"
+
+// longContextRequestedKey caches ParsedRequest.LongContextRequested for buildUpstreamRequest.
+const longContextRequestedKey = "longContextRequested"
+
 // getBetaPolicyFilterSet returns the beta policy filter set, using the gin context cache if available.
 // In the /v1/messages path, Forward() evaluates the policy first and caches the result;
 // buildUpstreamRequest reuses it (zero extra DB calls). In the count_tokens path, this
 // evaluates on demand (one DB call).
 func (s *GatewayService) getBetaPolicyFilterSet(ctx context.Context, c *gin.Context, account *Account, model string) map[string]struct{} {
+	filterSet, _ := s.getBetaPolicySets(ctx, c, account, model)
+	return filterSet
+}
+
+// getBetaPolicySets is getBetaPolicyFilterSet that also returns the explicit pass set
+// (cached by Forward alongside the filter set; evaluated together on a cache miss).
+func (s *GatewayService) getBetaPolicySets(ctx context.Context, c *gin.Context, account *Account, model string) (filterSet, passSet map[string]struct{}) {
 	if c != nil {
 		if v, ok := c.Get(betaPolicyFilterSetKey); ok {
 			if fs, ok := v.(map[string]struct{}); ok {
-				return fs
+				ps, _ := c.Get(betaPolicyPassSetKey)
+				passSet, _ = ps.(map[string]struct{})
+				return fs, passSet
 			}
 		}
 	}
-	return s.evaluateBetaPolicy(ctx, "", account, model).filterSet
+	policy := s.evaluateBetaPolicy(ctx, "", account, model)
+	return policy.filterSet, policy.passSet
 }
 
 // betaPolicyScopeMatches checks whether a rule's scope matches the current account type.

@@ -70,6 +70,35 @@ func responsesTextFormatToChatResponseFormat(raw json.RawMessage) json.RawMessag
 	return out
 }
 
+// responsesTextFormatToAnthropicOutputFormat maps Responses text.format
+// {type:"json_schema", name, schema, strict} to Anthropic output_config.format
+// {type:"json_schema", schema}. Anthropic always enforces the schema and has no
+// name/strict fields; json_object/text have no Anthropic equivalent → nil.
+// A Chat-shaped {type, json_schema:{schema}} is tolerated as well.
+func responsesTextFormatToAnthropicOutputFormat(raw json.RawMessage) json.RawMessage {
+	obj, ok := rawJSONObject(normalizedRawJSON(raw))
+	if !ok || rawString(obj["type"]) != "json_schema" {
+		return nil
+	}
+	schema := normalizedRawJSON(obj["schema"])
+	if len(schema) == 0 {
+		if nested, ok := rawJSONObject(normalizedRawJSON(obj["json_schema"])); ok {
+			schema = normalizedRawJSON(nested["schema"])
+		}
+	}
+	if len(schema) == 0 {
+		return nil
+	}
+	out, err := json.Marshal(map[string]json.RawMessage{
+		"type":   rawJSONString("json_schema"),
+		"schema": schema,
+	})
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
 func normalizedRawJSON(raw json.RawMessage) json.RawMessage {
 	raw = bytesTrimSpace(raw)
 	if len(raw) == 0 || string(raw) == "null" {

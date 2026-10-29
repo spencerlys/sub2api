@@ -34,6 +34,13 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		out.System = system
 	}
 
+	// text.format json_schema → output_config.format (GA structured outputs)
+	if req.Text != nil {
+		if format := responsesTextFormatToAnthropicOutputFormat(req.Text.Format); len(format) > 0 {
+			out.OutputConfig = &AnthropicOutputConfig{Format: format}
+		}
+	}
+
 	// max_output_tokens → max_tokens
 	if req.MaxOutputTokens != nil && *req.MaxOutputTokens > 0 {
 		out.MaxTokens = *req.MaxOutputTokens
@@ -126,14 +133,20 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 			return nil, fmt.Errorf("%s does not support reasoning effort %q; use low, medium, high, xhigh or max", req.Model, effort)
 		}
 		out.Thinking = &AnthropicThinking{Type: "adaptive"}
-		out.OutputConfig = &AnthropicOutputConfig{Effort: effort}
+		if out.OutputConfig == nil {
+			out.OutputConfig = &AnthropicOutputConfig{}
+		}
+		out.OutputConfig.Effort = effort
 		return out, nil
 	}
 
 	// reasoning.effort → output_config.effort + thinking
 	if req.Reasoning != nil && req.Reasoning.Effort != "" {
 		effort := mapResponsesEffortToAnthropic(req.Reasoning.Effort)
-		out.OutputConfig = &AnthropicOutputConfig{Effort: effort}
+		if out.OutputConfig == nil {
+			out.OutputConfig = &AnthropicOutputConfig{}
+		}
+		out.OutputConfig.Effort = effort
 		// Enable thinking for non-low efforts
 		if effort != "low" {
 			out.Thinking = &AnthropicThinking{

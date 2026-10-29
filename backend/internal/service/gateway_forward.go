@@ -154,7 +154,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// Beta policy: evaluate once; block check + cache filter set for buildUpstreamRequest.
 	// Always overwrite the cache to prevent stale values from a previous retry with a different account.
 	if account.Platform == PlatformAnthropic && c != nil {
-		policy := s.evaluateBetaPolicy(ctx, c.GetHeader("anthropic-beta"), account, parsed.Model)
+		requestedBeta := c.GetHeader("anthropic-beta")
+		if parsed.LongContextRequested {
+			requestedBeta = mergeAnthropicBeta(nil, requestedBeta+","+claude.BetaContext1M)
+		}
+		policy := s.evaluateBetaPolicy(ctx, requestedBeta, account, parsed.Model)
 		if policy.blockErr != nil {
 			return nil, policy.blockErr
 		}
@@ -163,6 +167,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			filterSet = map[string]struct{}{}
 		}
 		c.Set(betaPolicyFilterSetKey, filterSet)
+		c.Set(betaPolicyPassSetKey, policy.passSet)
+		c.Set(longContextRequestedKey, parsed.LongContextRequested)
 	}
 
 	body := parsed.Body.Bytes()
