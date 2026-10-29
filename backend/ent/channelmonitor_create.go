@@ -93,6 +93,20 @@ func (_c *ChannelMonitorCreate) SetNillableAccountID(v *int64) *ChannelMonitorCr
 	return _c
 }
 
+// SetProxyID sets the "proxy_id" field.
+func (_c *ChannelMonitorCreate) SetProxyID(v int64) *ChannelMonitorCreate {
+	_c.mutation.SetProxyID(v)
+	return _c
+}
+
+// SetNillableProxyID sets the "proxy_id" field if the given value is not nil.
+func (_c *ChannelMonitorCreate) SetNillableProxyID(v *int64) *ChannelMonitorCreate {
+	if v != nil {
+		_c.SetProxyID(*v)
+	}
+	return _c
+}
+
 // SetAPIMode sets the "api_mode" field.
 func (_c *ChannelMonitorCreate) SetAPIMode(v string) *ChannelMonitorCreate {
 	_c.mutation.SetAPIMode(v)
@@ -521,6 +535,10 @@ func (_c *ChannelMonitorCreate) createSpec() (*ChannelMonitor, *sqlgraph.CreateS
 		_spec.SetField(channelmonitor.FieldAccountID, field.TypeInt64, value)
 		_node.AccountID = &value
 	}
+	if value, ok := _c.mutation.ProxyID(); ok {
+		_spec.SetField(channelmonitor.FieldProxyID, field.TypeInt64, value)
+		_node.ProxyID = &value
+	}
 	if value, ok := _c.mutation.APIMode(); ok {
 		_spec.SetField(channelmonitor.FieldAPIMode, field.TypeString, value)
 		_node.APIMode = value
@@ -747,6 +765,30 @@ func (u *ChannelMonitorUpsert) AddAccountID(v int64) *ChannelMonitorUpsert {
 // ClearAccountID clears the value of the "account_id" field.
 func (u *ChannelMonitorUpsert) ClearAccountID() *ChannelMonitorUpsert {
 	u.SetNull(channelmonitor.FieldAccountID)
+	return u
+}
+
+// SetProxyID sets the "proxy_id" field.
+func (u *ChannelMonitorUpsert) SetProxyID(v int64) *ChannelMonitorUpsert {
+	u.Set(channelmonitor.FieldProxyID, v)
+	return u
+}
+
+// UpdateProxyID sets the "proxy_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsert) UpdateProxyID() *ChannelMonitorUpsert {
+	u.SetExcluded(channelmonitor.FieldProxyID)
+	return u
+}
+
+// AddProxyID adds v to the "proxy_id" field.
+func (u *ChannelMonitorUpsert) AddProxyID(v int64) *ChannelMonitorUpsert {
+	u.Add(channelmonitor.FieldProxyID, v)
+	return u
+}
+
+// ClearProxyID clears the value of the "proxy_id" field.
+func (u *ChannelMonitorUpsert) ClearProxyID() *ChannelMonitorUpsert {
+	u.SetNull(channelmonitor.FieldProxyID)
 	return u
 }
 
@@ -1098,6 +1140,34 @@ func (u *ChannelMonitorUpsertOne) UpdateAccountID() *ChannelMonitorUpsertOne {
 func (u *ChannelMonitorUpsertOne) ClearAccountID() *ChannelMonitorUpsertOne {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.ClearAccountID()
+	})
+}
+
+// SetProxyID sets the "proxy_id" field.
+func (u *ChannelMonitorUpsertOne) SetProxyID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetProxyID(v)
+	})
+}
+
+// AddProxyID adds v to the "proxy_id" field.
+func (u *ChannelMonitorUpsertOne) AddProxyID(v int64) *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddProxyID(v)
+	})
+}
+
+// UpdateProxyID sets the "proxy_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertOne) UpdateProxyID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateProxyID()
+	})
+}
+
+// ClearProxyID clears the value of the "proxy_id" field.
+func (u *ChannelMonitorUpsertOne) ClearProxyID() *ChannelMonitorUpsertOne {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearProxyID()
 	})
 }
 
@@ -1652,6 +1722,34 @@ func (u *ChannelMonitorUpsertBulk) UpdateAccountID() *ChannelMonitorUpsertBulk {
 func (u *ChannelMonitorUpsertBulk) ClearAccountID() *ChannelMonitorUpsertBulk {
 	return u.Update(func(s *ChannelMonitorUpsert) {
 		s.ClearAccountID()
+	})
+}
+
+// SetProxyID sets the "proxy_id" field.
+func (u *ChannelMonitorUpsertBulk) SetProxyID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.SetProxyID(v)
+	})
+}
+
+// AddProxyID adds v to the "proxy_id" field.
+func (u *ChannelMonitorUpsertBulk) AddProxyID(v int64) *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.AddProxyID(v)
+	})
+}
+
+// UpdateProxyID sets the "proxy_id" field to the value that was provided on create.
+func (u *ChannelMonitorUpsertBulk) UpdateProxyID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.UpdateProxyID()
+	})
+}
+
+// ClearProxyID clears the value of the "proxy_id" field.
+func (u *ChannelMonitorUpsertBulk) ClearProxyID() *ChannelMonitorUpsertBulk {
+	return u.Update(func(s *ChannelMonitorUpsert) {
+		s.ClearProxyID()
 	})
 }
 

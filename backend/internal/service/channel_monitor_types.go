@@ -54,6 +54,12 @@ type ChannelMonitor struct {
 	CheckMode string // probe（默认）/ quota / quota_probe；空串按 probe 处理
 	AccountID *int64 // 关联账号 ID；账号删除后被 DB 置空（监控保留并报「账号未关联」）
 
+	// 探活代理：ProxyID 显式指定；nil 时回退到关联账号的代理，账号也无代理则直连
+	// （见 resolveMonitorProbeProxy）。代理删除后被 DB 置空。
+	ProxyID *int64
+	// ProxyName 仅用于响应展示（service 按 ProxyID 批量回填），不落库。
+	ProxyName string
+
 	// 请求自定义快照（来自模板拷贝 or 用户手填，运行时直接读取）
 	TemplateID       *int64            // 仅用于 UI 分组 + 一键应用，运行时不用
 	ExtraHeaders     map[string]string // 与 adapter 默认 headers 合并，用户优先
@@ -102,6 +108,9 @@ type ChannelMonitorCreateParams struct {
 	// 配额模式：CheckMode 空串默认 probe；quota/quota_probe 必须关联账号。
 	CheckMode string
 	AccountID *int64
+
+	// ProxyID 探活代理；nil 或 <= 0 表示不指定（回退到关联账号代理 / 直连）。
+	ProxyID *int64
 }
 
 // ChannelMonitorUpdateParams 更新参数（指针字段表示"未提供则不更新"）。
@@ -130,6 +139,9 @@ type ChannelMonitorUpdateParams struct {
 	// 指向 0 = 清空关联（退回 probe 模式时由 CheckMode 分支兜底）。
 	CheckMode *string
 	AccountID *int64
+
+	// ProxyID nil = 不更新；指向 0 = 清空（回退到关联账号代理 / 直连）。
+	ProxyID *int64
 }
 
 // CheckResult 单个模型一次检测的结果。

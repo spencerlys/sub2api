@@ -585,6 +585,8 @@ export default {
         endpoint: '上游地址',
         endpointPlaceholder: 'https://api.example.com',
         useCurrentDomain: '使用当前服务',
+        proxy: '探活代理',
+        proxyHint: '探活请求与端点 ping 经此代理出网；留空则使用关联账号的代理，否则直连',
         apiKey: 'API Key',
         apiKeyPlaceholder: '请输入 API Key',
         apiKeyEditPlaceholder: '留空表示不修改',

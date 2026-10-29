@@ -106,6 +106,15 @@
         </div>
       </div>
 
+      <!-- 探活出网代理：留空 = 用关联账号的代理，否则直连（配额模式走账号自身代理，不受此影响） -->
+      <div v-if="usesProbePart">
+        <label class="input-label">{{ t('admin.channelMonitor.form.proxy') }}</label>
+        <div data-testid="monitor-proxy">
+          <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
+        </div>
+        <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.proxyHint') }}</p>
+      </div>
+
       <div v-if="usesProbePart">
         <label class="input-label">
           {{ t('admin.channelMonitor.form.apiKey') }}<span v-if="!editing" class="text-red-500"> *</span>
@@ -250,10 +259,11 @@ import type {
   UpdateParams,
 } from '@/api/admin/channelMonitor'
 import type { ChannelMonitorTemplate } from '@/api/admin/channelMonitorTemplate'
-import type { ApiKey } from '@/types'
+import type { ApiKey, Proxy } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Select from '@/components/common/Select.vue'
+import ProxySelector from '@/components/common/ProxySelector.vue'
 import ModelTagInput from '@/components/admin/channel/ModelTagInput.vue'
 import { getPlatformTextClass } from '@/components/admin/channel/types'
 import MonitorKeyPickerDialog from '@/components/admin/monitor/MonitorKeyPickerDialog.vue'
@@ -324,6 +334,8 @@ interface MonitorForm {
   api_mode: APIMode
   check_mode: CheckMode
   account_id: number | null
+  // 探活代理：null = 回退到关联账号代理，否则直连
+  proxy_id: number | null
   endpoint: string
   api_key: string
   primary_model: string
@@ -345,6 +357,7 @@ const form = reactive<MonitorForm>({
   api_mode: API_MODE_CHAT_COMPLETIONS,
   check_mode: CHECK_MODE_PROBE,
   account_id: null,
+  proxy_id: null,
   endpoint: '',
   api_key: '',
   primary_model: '',
@@ -383,6 +396,19 @@ const templateOptions = computed(() => {
     ...items.map((t) => ({ value: String(t.id), label: templateOptionLabel(t) })),
   ]
 })
+
+// 可选代理列表（进入 dialog 时一次性拉取 cache）。
+const proxies = ref<Proxy[]>([])
+
+async function loadProxies() {
+  if (proxies.value.length > 0) return
+  try {
+    proxies.value = await adminAPI.proxies.getAll()
+  } catch (err: unknown) {
+    // 代理拉取失败不阻塞监控表单：下拉只剩「不使用代理」
+    console.warn('load proxies failed', err)
+  }
+}
 
 async function loadTemplates() {
   if (templatesCache.value.length > 0) return
@@ -732,6 +758,7 @@ function resetForm() {
   form.account_id = null
   pinnedAccount.value = null
   accountHydrationFailed.value = false
+  form.proxy_id = null
   form.endpoint = ''
   form.api_key = ''
   form.primary_model = ''
@@ -754,6 +781,7 @@ function loadFromMonitor(m: ChannelMonitor) {
   form.api_mode = normalizeAPIMode(m.api_mode)
   form.check_mode = m.check_mode || CHECK_MODE_PROBE
   form.account_id = m.account_id ?? null
+  form.proxy_id = m.proxy_id ?? null
   form.endpoint = m.endpoint
   form.api_key = ''
   form.primary_model = m.primary_model
@@ -776,6 +804,7 @@ watch(
   ([show, m]) => {
     if (!show) return
     void loadTemplates()
+    void loadProxies()
     if (m) loadFromMonitor(m)
     else resetForm()
   },
@@ -822,6 +851,8 @@ function buildPayload(): CreateParams {
     api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
     check_mode: form.check_mode,
     account_id: usesQuotaMode.value ? form.account_id : null,
+    // null 在 create 时 = 不指定；update 时 = 清空（后端三态，缺省才是不动）
+    proxy_id: usesProbePart.value ? form.proxy_id : null,
     endpoint: usesProbePart.value ? form.endpoint.trim() : '',
     api_key: usesProbePart.value ? form.api_key.trim() : '',
     primary_model: usesProbePart.value ? form.primary_model.trim() : 'quota',

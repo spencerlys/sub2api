@@ -82,6 +82,9 @@ type ChannelMonitorService struct {
 	// 之后构造，构造参数注入会破坏既有依赖顺序）。nil 时 fail-closed：
 	// 配额模式的检测产出「未配置」错误快照，Create/Update 关联账号直接报错。
 	quotaFetcher *ChannelMonitorQuotaFetcher
+	// proxies 由 wire 通过 SetProxyRepository 注入：探活代理解析、proxy_id 校验、
+	// proxy_name 回填。nil 时 fail-closed（见 SetProxyRepository）。
+	proxies monitorProxySource
 }
 
 const maxChannelMonitorNameRunes = 100
@@ -131,6 +134,7 @@ func (s *ChannelMonitorService) List(ctx context.Context, params ChannelMonitorL
 	for _, it := range items {
 		s.decryptInPlace(it)
 	}
+	s.fillProxyNames(ctx, items...)
 	return items, total, nil
 }
 
@@ -141,6 +145,7 @@ func (s *ChannelMonitorService) Get(ctx context.Context, id int64) (*ChannelMoni
 		return nil, err
 	}
 	s.decryptInPlace(m)
+	s.fillProxyNames(ctx, m)
 	return m, nil
 }
 
@@ -156,6 +161,9 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		return nil, err
 	}
 	if err := s.validateLinkedAccount(ctx, p.Provider, p.AccountID); err != nil {
+		return nil, err
+	}
+	if err := s.validateMonitorProxy(ctx, p.ProxyID); err != nil {
 		return nil, err
 	}
 	checkMode := defaultCheckMode(p.CheckMode)
@@ -182,6 +190,7 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		BodyOverride:     p.BodyOverride,
 		CheckMode:        checkMode,
 		AccountID:        cloneInt64Pointer(p.AccountID),
+		ProxyID:          normalizeMonitorProxyID(p.ProxyID),
 	}
 	if err := s.repo.Create(ctx, m); err != nil {
 		return nil, fmt.Errorf("create channel monitor: %w", err)
@@ -189,6 +198,7 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 	// 不再调 s.Get 重走解密链：已知刚加密的明文，直接构造响应。
 	// 这样可避免 SecretEncryptor 解密失败时 APIKey 被静默清空的问题（见 Fix 4）。
 	m.APIKey = strings.TrimSpace(p.APIKey)
+	s.fillProxyNames(ctx, m)
 	if s.scheduler != nil {
 		s.scheduler.Schedule(m)
 	}
@@ -249,6 +259,7 @@ func (s *ChannelMonitorService) Duplicate(
 		BodyOverride:         bodyOverride,
 		CheckMode:            defaultCheckMode(source.CheckMode),
 		AccountID:            cloneInt64Pointer(source.AccountID),
+		ProxyID:              cloneInt64Pointer(source.ProxyID),
 		DuplicateOperationID: operationID,
 	}
 	if err := s.repo.Create(ctx, duplicate); err != nil {
@@ -258,6 +269,7 @@ func (s *ChannelMonitorService) Duplicate(
 	// Match Create/Update response semantics: repository receives ciphertext,
 	// while handlers receive plaintext only so they can return the masked form.
 	duplicate.APIKey = plainAPIKey
+	s.fillProxyNames(ctx, duplicate)
 	return duplicate, nil
 }
 
@@ -281,6 +293,7 @@ func (s *ChannelMonitorService) RecoverDuplicate(
 		return nil, nil
 	}
 	s.decryptInPlace(monitor)
+	s.fillProxyNames(ctx, monitor)
 	return monitor, nil
 }
 
@@ -435,6 +448,12 @@ func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelM
 	if err := applyMonitorUpdate(existing, p); err != nil {
 		return nil, err
 	}
+	if p.ProxyID != nil {
+		if err := s.validateMonitorProxy(ctx, p.ProxyID); err != nil {
+			return nil, err
+		}
+		existing.ProxyID = normalizeMonitorProxyID(p.ProxyID)
+	}
 
 	newPlainAPIKey, apiKeyUpdated, err := s.applyAPIKeyUpdate(existing, p.APIKey)
 	if err != nil {
@@ -459,6 +478,7 @@ func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelM
 	} else {
 		s.decryptInPlace(existing)
 	}
+	s.fillProxyNames(ctx, existing)
 	if s.scheduler != nil {
 		// Schedule 内部根据 Enabled 自动选择 Unschedule 或重建任务，
 		// IntervalSeconds 变化也会被自然吸收（旧 task 取消 + 新 task 用新 interval）。
@@ -699,8 +719,15 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 	models := append([]string{m.PrimaryModel}, m.ExtraModels...)
 	results := make([]*CheckResult, len(models))
 
+	// 探活代理解析一次，ping 与所有模型共用；解析失败时整轮报错，不静默直连。
+	proxy, err := resolveMonitorProbeProxy(ctx, m, s.proxies, s.probeAccountSource())
+	if err != nil {
+		return monitorProxyErrorResults(models, err)
+	}
+	proxyURL := monitorProxyURL(proxy)
+
 	// ping 共享一次，所有模型记录同一个 ping 延迟。
-	pingMs := pingEndpointOrigin(ctx, m.Endpoint)
+	pingMs := pingEndpointOrigin(ctx, m.Endpoint, proxyURL)
 
 	// 所有模型共用同一份 CheckOptions（来自监控的快照字段）。
 	opts := &CheckOptions{
@@ -708,6 +735,7 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 		ExtraHeaders:     m.ExtraHeaders,
 		BodyOverrideMode: m.BodyOverrideMode,
 		BodyOverride:     m.BodyOverride,
+		ProxyURL:         proxyURL,
 	}
 
 	var eg errgroup.Group

@@ -52,6 +52,12 @@ func (ChannelMonitor) Fields() []ent.Field {
 		field.Int64("account_id").
 			Optional().
 			Nillable(),
+		// proxy_id: 探活（含 origin HEAD ping）使用的代理。为空时回退到关联账号的
+		// 代理，账号也无代理则直连。普通字段而非 edge（FK 由 SQL 迁移管理）；
+		// 代理删除时数据库置空。配额模式不读此字段（走账号侧用量服务自身的代理）。
+		field.Int64("proxy_id").
+			Optional().
+			Nillable(),
 		field.String("api_mode").
 			Default("chat_completions").
 			MaxLen(32).
@@ -133,5 +139,6 @@ func (ChannelMonitor) Indexes() []ent.Index {
 		index.Fields("group_name"),
 		index.Fields("template_id"),
 		index.Fields("account_id"),
+		index.Fields("proxy_id"),
 	}
 }

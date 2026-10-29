@@ -585,6 +585,8 @@ export default {
         endpoint: 'Endpoint',
         endpointPlaceholder: 'https://api.example.com',
         useCurrentDomain: 'Use current service',
+        proxy: 'Probe Proxy',
+        proxyHint: 'Probe requests and the endpoint ping go out through this proxy. Leave empty to use the linked account\'s proxy, otherwise connect directly',
         apiKey: 'API Key',
         apiKeyPlaceholder: 'Enter API Key',
         apiKeyEditPlaceholder: 'Leave blank to keep current key',

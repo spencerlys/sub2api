@@ -61,6 +61,9 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 	if m.AccountID != nil {
 		builder = builder.SetAccountID(*m.AccountID)
 	}
+	if m.ProxyID != nil {
+		builder = builder.SetProxyID(*m.ProxyID)
+	}
 	if m.BodyOverride != nil {
 		builder = builder.SetBodyOverride(m.BodyOverride)
 	}
@@ -135,6 +138,11 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 		updater = updater.SetAccountID(*m.AccountID)
 	} else {
 		updater = updater.ClearAccountID()
+	}
+	if m.ProxyID != nil {
+		updater = updater.SetProxyID(*m.ProxyID)
+	} else {
+		updater = updater.ClearProxyID()
 	}
 	if m.BodyOverride != nil {
 		updater = updater.SetBodyOverride(m.BodyOverride)
@@ -799,6 +807,10 @@ func entToServiceMonitor(row *dbent.ChannelMonitor) *service.ChannelMonitor {
 	if row.AccountID != nil {
 		id := *row.AccountID
 		out.AccountID = &id
+	}
+	if row.ProxyID != nil {
+		id := *row.ProxyID
+		out.ProxyID = &id
 	}
 	return out
 }

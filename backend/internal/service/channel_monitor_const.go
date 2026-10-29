@@ -160,6 +160,9 @@ var (
 	ErrChannelMonitorAccountRequired = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_ACCOUNT_REQUIRED", "account_id is required for quota-based check_mode",
 	)
+	ErrChannelMonitorProxyNotFound = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_PROXY_NOT_FOUND", "proxy_id does not reference an existing proxy",
+	)
 	ErrChannelMonitorProviderIncompatible = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_PROVIDER_INCOMPATIBLE", "monitor provider must match the linked account platform",
 	)

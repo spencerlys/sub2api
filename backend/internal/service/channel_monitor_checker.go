@@ -50,6 +50,8 @@ type CheckOptions struct {
 	// BodyOverride 在 merge 模式下做浅合并（key 命中黑名单时静默丢弃），
 	// 在 replace 模式下直接当作完整 body。
 	BodyOverride map[string]any
+	// ProxyURL 探活出网代理（由 resolveMonitorProbeProxy 解析）；空串 = 直连。
+	ProxyURL string
 }
 
 // runCheckForModel 对单个 (provider, model) 做一次完整检测。
@@ -128,10 +130,15 @@ func bodyOverrideMode(opts *CheckOptions) string {
 }
 
 // pingEndpointOrigin 对 endpoint 的 origin (scheme://host) 发起 HEAD 请求，返回耗时。
+// proxyURL 为空时直连，否则经该代理出网（与检测请求同一出口）。
 // 失败时返回 nil（不影响主状态判定）。
-func pingEndpointOrigin(ctx context.Context, endpoint string) *int {
+func pingEndpointOrigin(ctx context.Context, endpoint, proxyURL string) *int {
 	origin, err := extractOrigin(endpoint)
 	if err != nil || origin == "" {
+		return nil
+	}
+	client, err := monitorPingClient(proxyURL)
+	if err != nil {
 		return nil
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, origin, nil)
@@ -139,7 +146,7 @@ func pingEndpointOrigin(ctx context.Context, endpoint string) *int {
 		return nil
 	}
 	start := time.Now()
-	resp, err := monitorPingHTTPClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil
 	}
@@ -298,7 +305,11 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	full := joinURL(endpoint, monitorRequestPath(provider, endpoint, adapter, model))
-	respBytes, status, err := postRawJSON(ctx, full, body, headers)
+	client, err := monitorRequestClient(checkProxyURL(opts))
+	if err != nil {
+		return "", "", 0, fmt.Errorf("build proxy client: %w", err)
+	}
+	respBytes, status, err := postRawJSON(ctx, client, full, body, headers)
 	if err != nil {
 		return "", "", status, err
 	}
@@ -472,6 +483,14 @@ func checkAPIMode(opts *CheckOptions) string {
 	return defaultAPIMode(opts.APIMode)
 }
 
+// checkProxyURL nil opts 等同直连。
+func checkProxyURL(opts *CheckOptions) string {
+	if opts == nil {
+		return ""
+	}
+	return opts.ProxyURL
+}
+
 func bodyMergeDenyKey(provider, apiMode string) string {
 	if provider == MonitorProviderOpenAI {
 		return provider + ":" + defaultAPIMode(apiMode)
@@ -532,7 +551,8 @@ func hasNonEmptyBodyValue(v any) bool {
 
 // postRawJSON 发送 POST + 已序列化好的 JSON 字节，限制响应体大小，返回响应字节、HTTP status、错误。
 // adapter 自行 marshal 是为了精确控制字段顺序与类型，所以这里直接收 []byte 而不是 any。
-func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string) ([]byte, int, error) {
+// client 由 monitorRequestClient 按探活代理选择（直连 / 经代理）。
+func postRawJSON(ctx context.Context, client *http.Client, fullURL string, payload []byte, headers map[string]string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, 0, fmt.Errorf("build request: %w", err)
@@ -543,7 +563,7 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 		req.Header.Set(k, v)
 	}
 
-	resp, err := monitorHTTPClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("do request: %w", err)
 	}

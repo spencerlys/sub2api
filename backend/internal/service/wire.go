@@ -1028,13 +1028,18 @@ func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache Lead
 // ProvideChannelMonitorService 创建渠道监控服务（CRUD + RunCheck + 用户视图聚合）。
 // 加密器复用 wire 中已注入的 SecretEncryptor（AES-256-GCM）。
 // settingService gates RunCheck via channel_monitor_enabled + channel_monitor_mode.
+// proxyRepo 用于探活代理解析（proxy_id / 关联账号代理）与 proxy_name 回填。
 func ProvideChannelMonitorService(
 	repo ChannelMonitorRepository,
 	encryptor SecretEncryptor,
 	settingService *SettingService,
+	proxyRepo ProxyRepository,
 ) *ChannelMonitorService {
 	svc := NewChannelMonitorService(repo, encryptor)
 	svc.SetRuntimeReader(settingService)
+	if proxyRepo != nil {
+		svc.SetProxyRepository(proxyRepo)
+	}
 	return svc
 }
 

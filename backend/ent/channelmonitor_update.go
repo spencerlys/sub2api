@@ -107,6 +107,33 @@ func (_u *ChannelMonitorUpdate) ClearAccountID() *ChannelMonitorUpdate {
 	return _u
 }
 
+// SetProxyID sets the "proxy_id" field.
+func (_u *ChannelMonitorUpdate) SetProxyID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.ResetProxyID()
+	_u.mutation.SetProxyID(v)
+	return _u
+}
+
+// SetNillableProxyID sets the "proxy_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableProxyID(v *int64) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetProxyID(*v)
+	}
+	return _u
+}
+
+// AddProxyID adds value to the "proxy_id" field.
+func (_u *ChannelMonitorUpdate) AddProxyID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.AddProxyID(v)
+	return _u
+}
+
+// ClearProxyID clears the value of the "proxy_id" field.
+func (_u *ChannelMonitorUpdate) ClearProxyID() *ChannelMonitorUpdate {
+	_u.mutation.ClearProxyID()
+	return _u
+}
+
 // SetAPIMode sets the "api_mode" field.
 func (_u *ChannelMonitorUpdate) SetAPIMode(v string) *ChannelMonitorUpdate {
 	_u.mutation.SetAPIMode(v)
@@ -575,6 +602,15 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 	if _u.mutation.AccountIDCleared() {
 		_spec.ClearField(channelmonitor.FieldAccountID, field.TypeInt64)
 	}
+	if value, ok := _u.mutation.ProxyID(); ok {
+		_spec.SetField(channelmonitor.FieldProxyID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedProxyID(); ok {
+		_spec.AddField(channelmonitor.FieldProxyID, field.TypeInt64, value)
+	}
+	if _u.mutation.ProxyIDCleared() {
+		_spec.ClearField(channelmonitor.FieldProxyID, field.TypeInt64)
+	}
 	if value, ok := _u.mutation.APIMode(); ok {
 		_spec.SetField(channelmonitor.FieldAPIMode, field.TypeString, value)
 	}
@@ -851,6 +887,33 @@ func (_u *ChannelMonitorUpdateOne) AddAccountID(v int64) *ChannelMonitorUpdateOn
 // ClearAccountID clears the value of the "account_id" field.
 func (_u *ChannelMonitorUpdateOne) ClearAccountID() *ChannelMonitorUpdateOne {
 	_u.mutation.ClearAccountID()
+	return _u
+}
+
+// SetProxyID sets the "proxy_id" field.
+func (_u *ChannelMonitorUpdateOne) SetProxyID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.ResetProxyID()
+	_u.mutation.SetProxyID(v)
+	return _u
+}
+
+// SetNillableProxyID sets the "proxy_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableProxyID(v *int64) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetProxyID(*v)
+	}
+	return _u
+}
+
+// AddProxyID adds value to the "proxy_id" field.
+func (_u *ChannelMonitorUpdateOne) AddProxyID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.AddProxyID(v)
+	return _u
+}
+
+// ClearProxyID clears the value of the "proxy_id" field.
+func (_u *ChannelMonitorUpdateOne) ClearProxyID() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearProxyID()
 	return _u
 }
 
@@ -1351,6 +1414,15 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 	}
 	if _u.mutation.AccountIDCleared() {
 		_spec.ClearField(channelmonitor.FieldAccountID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.ProxyID(); ok {
+		_spec.SetField(channelmonitor.FieldProxyID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedProxyID(); ok {
+		_spec.AddField(channelmonitor.FieldProxyID, field.TypeInt64, value)
+	}
+	if _u.mutation.ProxyIDCleared() {
+		_spec.ClearField(channelmonitor.FieldProxyID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.APIMode(); ok {
 		_spec.SetField(channelmonitor.FieldAPIMode, field.TypeString, value)

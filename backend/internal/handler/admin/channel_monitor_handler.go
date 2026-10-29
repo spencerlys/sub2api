@@ -60,6 +60,8 @@ type channelMonitorCreateRequest struct {
 	CheckMode string `json:"check_mode" binding:"omitempty,oneof=probe quota quota_probe"`
 	// AccountID: 配额模式关联的账号 ID。
 	AccountID *int64 `json:"account_id"`
+	// ProxyID: 探活代理；null / 0 = 不指定（回退到关联账号代理，否则直连）。
+	ProxyID *int64 `json:"proxy_id"`
 }
 
 type channelMonitorUpdateRequest struct {
@@ -83,6 +85,8 @@ type channelMonitorUpdateRequest struct {
 	// CheckMode/AccountID：nil = 不更新；AccountID 指向 0 = 清空关联。
 	CheckMode *string `json:"check_mode" binding:"omitempty,oneof=probe quota quota_probe"`
 	AccountID *int64  `json:"account_id"`
+	// ProxyID：缺省 = 不更新；null / 0 = 清空（回退到关联账号代理，否则直连）。
+	ProxyID dto.NullableInt64Field `json:"proxy_id"`
 }
 
 type channelMonitorResponse struct {
@@ -118,6 +122,10 @@ type channelMonitorResponse struct {
 	CheckMode   string                       `json:"check_mode"`
 	AccountID   *int64                       `json:"account_id"`
 	LatestQuota *domain.MonitorQuotaSnapshot `json:"latest_quota,omitempty"`
+
+	// 探活代理：proxy_id 为空表示回退到关联账号代理 / 直连；proxy_name 仅展示用。
+	ProxyID   *int64 `json:"proxy_id"`
+	ProxyName string `json:"proxy_name"`
 }
 
 type channelMonitorCheckResultResponse struct {
@@ -184,6 +192,8 @@ func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse
 		BodyOverride:        m.BodyOverride,
 		CheckMode:           m.CheckMode,
 		AccountID:           m.AccountID,
+		ProxyID:             m.ProxyID,
+		ProxyName:           m.ProxyName,
 		// PrimaryStatus / PrimaryLatencyMs / Availability7d / LatestQuota
 		// 由 List handler 在批量聚合后填充。
 	}
@@ -217,6 +227,20 @@ func historyEntryToResponse(e *service.ChannelMonitorHistoryEntry) channelMonito
 		CheckedAt:     e.CheckedAt.UTC().Format(time.RFC3339),
 		Quota:         e.Quota,
 	}
+}
+
+// updateProxyIDParam 把三态 proxy_id 映射为 service 语义：
+// 缺省 → nil（不更新）；null → 0（清空）；数值 → 原值（<= 0 同样视为清空）。
+func updateProxyIDParam(f dto.NullableInt64Field) *int64 {
+	if !f.Set {
+		return nil
+	}
+	if f.Value == nil {
+		var zero int64
+		return &zero
+	}
+	v := *f.Value
+	return &v
 }
 
 // ParseChannelMonitorID 提取并校验路径参数 :id（admin 与 user handler 共享）。
@@ -354,6 +378,7 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 		BodyOverride:     req.BodyOverride,
 		CheckMode:        req.CheckMode,
 		AccountID:        req.AccountID,
+		ProxyID:          req.ProxyID,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -450,6 +475,7 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 		BodyOverride:     req.BodyOverride,
 		CheckMode:        req.CheckMode,
 		AccountID:        req.AccountID,
+		ProxyID:          updateProxyIDParam(req.ProxyID),
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

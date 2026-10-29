@@ -40,6 +40,9 @@ vi.mock('@/api/admin', () => ({
       list: (...args: unknown[]) => accountsList(...args),
       getById: (...args: unknown[]) => accountsGetById(...args),
     },
+    proxies: {
+      getAll: () => Promise.resolve([]),
+    },
   },
 }))
 
