@@ -171,6 +171,8 @@ type Group struct {
 // 注意：普通用户接口不得返回 model_routing/account_count/account_groups 等内部信息。
 type AdminGroup struct {
 	Group
+	// OwnerUserID AI 账号所有者；管理员分组省略。
+	OwnerUserID *int64 `json:"owner_user_id,omitempty"`
 	// ForceOpenAIFast 是管理端请求策略，用户侧分组 DTO 无需暴露。
 	ForceOpenAIFast bool `json:"force_openai_fast"`
 	// FreeOpenAIFast 是管理端计费策略，用户侧分组 DTO 无需暴露。
@@ -223,6 +225,7 @@ type Account struct {
 	OllamaCloudUsage        *service.OllamaCloudUsageState `json:"ollama_cloud_usage,omitempty"`
 	OpenCodeGoUsage         *service.OpenCodeGoUsageState  `json:"opencode_go_usage,omitempty"`
 	ProxyID                 *int64                         `json:"proxy_id"`
+	OwnerUserID             *int64                         `json:"owner_user_id,omitempty"` // AI 账号所有者；管理员账户省略
 	ProxyFallbackOriginID   *int64                         `json:"proxy_fallback_origin_id"`
 	ProxyFallbackOriginName *string                        `json:"proxy_fallback_origin_name,omitempty"`
 	Concurrency             int                            `json:"concurrency"`
@@ -481,6 +484,8 @@ type ProxyWithAccountCount struct {
 type AdminProxy struct {
 	Proxy
 	Password string `json:"password,omitempty"`
+	// OwnerUserID AI 账号所有者；管理员代理省略。
+	OwnerUserID *int64 `json:"owner_user_id,omitempty"`
 }
 
 // AdminProxyWithAccountCount 是管理员接口使用的带账号统计的 proxy DTO。

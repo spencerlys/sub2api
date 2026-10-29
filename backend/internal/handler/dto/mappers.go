@@ -148,6 +148,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 	}
 	out := &AdminGroup{
 		Group:                       groupFromServiceBase(g),
+		OwnerUserID:                 g.OwnerUserID,
 		ForceOpenAIFast:             g.ForceOpenAIFast,
 		FreeOpenAIFast:              g.FreeOpenAIFast,
 		ProfitControlEnabled:        g.ProfitControlEnabled,
@@ -249,6 +250,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	}
 	out := &Account{
 		ID:                      a.ID,
+		OwnerUserID:             a.OwnerUserID,
 		Name:                    a.Name,
 		Notes:                   a.Notes,
 		Platform:                a.Platform,
@@ -575,8 +577,9 @@ func ProxyFromServiceAdmin(p *service.Proxy) *AdminProxy {
 		return nil
 	}
 	return &AdminProxy{
-		Proxy:    *base,
-		Password: p.Password,
+		Proxy:       *base,
+		Password:    p.Password,
+		OwnerUserID: p.OwnerUserID,
 	}
 }
 

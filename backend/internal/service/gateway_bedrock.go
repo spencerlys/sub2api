@@ -341,7 +341,10 @@ func (s *GatewayService) buildUpstreamRequestBedrock(
 	stream bool,
 	signer *BedrockSigner,
 ) (*http.Request, error) {
-	targetURL := BuildBedrockURL(region, modelID, stream)
+	targetURL, err := BuildBedrockURL(region, modelID, stream)
+	if err != nil {
+		return nil, err
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
@@ -368,7 +371,10 @@ func (s *GatewayService) buildUpstreamRequestBedrockAPIKey(
 	stream bool,
 	apiKey string,
 ) (*http.Request, error) {
-	targetURL := BuildBedrockURL(region, modelID, stream)
+	targetURL, err := BuildBedrockURL(region, modelID, stream)
+	if err != nil {
+		return nil, err
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {

@@ -257,3 +257,86 @@ func TestOwnerProxyGuards(t *testing.T) {
 	_, err = svc.CheckProxyQuality(owner, 1)
 	require.ErrorIs(t, err, ErrOwnerOutboundHostForbidden)
 }
+
+// Extra 增量合并同样不能让所有者把 custom_base_url 指向内网；保持现值与管理员不受影响。
+func TestUpdateAccountExtraOwnerOutboundGuard(t *testing.T) {
+	const accountID = int64(71)
+	svc, repo := newOwnerGuardService(map[int64]*Account{accountID: {
+		ID: accountID, Platform: PlatformAnthropic, Type: AccountTypeOAuth, OwnerUserID: int64Ptr(7),
+		Extra: map[string]any{"custom_base_url": "http://10.0.0.9:8080"},
+	}})
+	owner := ownerGuardContext(7)
+
+	err := svc.UpdateAccountExtra(owner, accountID, map[string]any{"custom_base_url": "http://127.0.0.1:8443", "custom_base_url_enabled": true})
+	require.ErrorIs(t, err, ErrOwnerOutboundHostForbidden)
+	require.Empty(t, repo.updates[accountID])
+
+	require.NoError(t, svc.UpdateAccountExtra(owner, accountID, map[string]any{"custom_base_url": "http://10.0.0.9:8080", "custom_base_url_enabled": true}))
+	require.NoError(t, svc.UpdateAccountExtra(context.Background(), accountID, map[string]any{"custom_base_url": "http://127.0.0.1:8443"}))
+	require.Equal(t, "http://127.0.0.1:8443", repo.accounts[accountID].Extra["custom_base_url"])
+}
+
+// aws_region 直接拼进 Bedrock 主机名，创建与更新时对所有人校验格式。
+func TestBedrockRegionValidatedOnAccountWrite(t *testing.T) {
+	const accountID = int64(81)
+	svc, repo := newOwnerGuardService(map[int64]*Account{accountID: {
+		ID: accountID, Platform: PlatformAnthropic, Type: AccountTypeBedrock, OwnerUserID: int64Ptr(7),
+		Credentials: map[string]any{"aws_region": "us-east-1", "api_key": "k"},
+	}})
+	bad := "x@127.0.0.1:8443/#"
+	for _, ctx := range []context.Context{ownerGuardContext(7), context.Background()} {
+		_, err := svc.CreateAccount(ctx, &CreateAccountInput{
+			Name: "b", Platform: PlatformAnthropic, Type: AccountTypeBedrock, SkipDefaultGroupBind: true,
+			Credentials: map[string]any{"aws_region": bad, "api_key": "k"},
+		})
+		require.ErrorIs(t, err, ErrBedrockRegionInvalid)
+		_, err = svc.UpdateAccount(ctx, accountID, &UpdateAccountInput{Credentials: map[string]any{"aws_region": bad}})
+		require.ErrorIs(t, err, ErrBedrockRegionInvalid)
+	}
+	require.Equal(t, "us-east-1", repo.accounts[accountID].Credentials["aws_region"])
+	_, err := svc.UpdateAccount(ownerGuardContext(7), accountID, &UpdateAccountInput{Credentials: map[string]any{"aws_region": "eu-west-1"}})
+	require.NoError(t, err)
+}
+
+// 管理员为所有者资源建影子或复制时，副本继承来源归属，不能变成管理员资源却带着所有者凭证。
+func TestCopiesInheritSourceOwner(t *testing.T) {
+	admin := context.Background()
+	repo := newDuplicateAccountRepoStub()
+	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
+	parent := &Account{Name: "p", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"refresh_token": "RT"}}
+	require.NoError(t, repo.Create(admin, parent))
+	repo.accounts[parent.ID].OwnerUserID = int64Ptr(7)
+	shadow, err := svc.CreateShadow(admin, parent.ID, ShadowOptions{Name: "p-spark"})
+	require.NoError(t, err)
+	require.Equal(t, int64Ptr(7), shadow.OwnerUserID)
+
+	source := &Account{Name: "k", Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "sk"}}
+	require.NoError(t, repo.Create(admin, source))
+	repo.accounts[source.ID].OwnerUserID = int64Ptr(7)
+	duplicate, err := svc.DuplicateAccount(admin, source.ID, "admin:1", "")
+	require.NoError(t, err)
+	require.Equal(t, int64Ptr(7), duplicate.OwnerUserID)
+
+	// 管理员资源的副本仍归管理员。
+	adminSource := &Account{Name: "a", Platform: PlatformAnthropic, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "sk"}}
+	require.NoError(t, repo.Create(admin, adminSource))
+	duplicate, err = svc.DuplicateAccount(admin, adminSource.ID, "admin:1", "")
+	require.NoError(t, err)
+	require.Nil(t, duplicate.OwnerUserID)
+
+	group := &Group{ID: 9, Name: "team", Platform: PlatformAnthropic, Status: StatusActive, OwnerUserID: int64Ptr(7)}
+	groups := newDuplicateGroupRepoStub(group)
+	gsvc := &adminServiceImpl{groupRepo: groups, groupDuplicateRepo: groups}
+	copied, err := gsvc.DuplicateGroup(admin, group.ID, "admin:1", "")
+	require.NoError(t, err)
+	require.Equal(t, int64Ptr(7), copied.OwnerUserID)
+}
+
+func TestValidateOwnerAccountOutboundChange(t *testing.T) {
+	owner := ownerGuardContext(7)
+	existing := &Account{Credentials: map[string]any{"base_url": "http://10.0.0.9"}}
+	require.ErrorIs(t, ValidateOwnerAccountOutboundChange(owner, existing, nil, map[string]any{"custom_base_url": "http://169.254.169.254/"}), ErrOwnerOutboundHostForbidden)
+	require.ErrorIs(t, ValidateOwnerAccountOutboundChange(owner, existing, map[string]any{"base_url": "http://127.0.0.1"}, nil), ErrOwnerOutboundHostForbidden)
+	require.NoError(t, ValidateOwnerAccountOutboundChange(owner, existing, map[string]any{"base_url": "http://10.0.0.9"}, nil))
+	require.NoError(t, ValidateOwnerAccountOutboundChange(context.Background(), existing, nil, map[string]any{"custom_base_url": "http://127.0.0.1"}))
+}

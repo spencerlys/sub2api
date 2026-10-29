@@ -84,10 +84,12 @@ func (r *duplicateGroupRepoStub) FindByDuplicateOperationID(_ context.Context, o
 	return cloneGroupForDuplicateTest(r.groups[id]), nil
 }
 
-func (r *duplicateGroupRepoStub) CreateFromSource(_ context.Context, group *Group, sourceGroupID int64) error {
+func (r *duplicateGroupRepoStub) CreateFromSource(ctx context.Context, group *Group, sourceGroupID int64) error {
 	if r.atomicCreateErr != nil {
 		return r.atomicCreateErr
 	}
+	// 与仓储一致：归属只取自上下文。
+	group.OwnerUserID = ResourceOwnerForCreate(ctx)
 	if group.DuplicateOperationID != "" {
 		if _, exists := r.byOperation[group.DuplicateOperationID]; exists {
 			return ErrGroupExists

@@ -36,9 +36,11 @@ func newSparkShadowRepoStub() *sparkShadowRepoStub {
 	}
 }
 
-func (s *sparkShadowRepoStub) Create(_ context.Context, account *Account) error {
+func (s *sparkShadowRepoStub) Create(ctx context.Context, account *Account) error {
 	s.nextID++
 	account.ID = s.nextID
+	// 与仓储一致：归属只取自上下文。
+	account.OwnerUserID = ResourceOwnerForCreate(ctx)
 	cp := *account
 	s.accounts[account.ID] = &cp
 	s.mockAccountRepoForGemini.accountsByID[account.ID] = &cp

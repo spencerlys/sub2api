@@ -30,6 +30,27 @@ var (
 	ErrOwnerSharedGroupManaged    = infraerrors.Forbidden("OWNER_SHARED_GROUP_MANAGED", "该账号已被管理员加入共享分组，请联系管理员移出后再操作")
 )
 
+type inheritedResourceOwnerKey struct{}
+
+// WithResourceOwner 为复制/影子等派生资源显式指定归属（来源资源的 owner_user_id，nil 为管理员）。
+// 仅由服务端按来源资源设置，不接受客户端输入。
+func WithResourceOwner(ctx context.Context, ownerUserID *int64) context.Context {
+	return context.WithValue(ctx, inheritedResourceOwnerKey{}, ownerUserID)
+}
+
+// ResourceOwnerForCreate 返回新建资源应登记的归属：所有者请求取本人，否则取 WithResourceOwner
+// 继承的来源归属，都没有时为 nil（管理员所有）。
+func ResourceOwnerForCreate(ctx context.Context) *int64 {
+	if id := adminaccess.OwnerUserID(ctx); id > 0 {
+		return &id
+	}
+	if inherited, _ := ctx.Value(inheritedResourceOwnerKey{}).(*int64); inherited != nil && *inherited > 0 {
+		id := *inherited
+		return &id
+	}
+	return nil
+}
+
 // ResourceOwnerReader 批量读取资源归属（id → owner_user_id，nil 为管理员所有）。
 // 每类资源一次查询，不存在或已删除的 id 不出现在结果中，且不附加所有者列表范围。
 type ResourceOwnerReader interface {
@@ -160,6 +181,16 @@ func checkOwnerAccountOutbound(ctx context.Context, credentials, extra map[strin
 		}
 	}
 	return nil
+}
+
+// ValidateOwnerAccountOutboundChange 供直接写凭证/Extra 的接口在写入前校验新地址；
+// existing 中已有的地址视为保持不变。管理员与管理密钥直接放行。
+func ValidateOwnerAccountOutboundChange(ctx context.Context, existing *Account, credentials, extra map[string]any) error {
+	var previous []string
+	if existing != nil {
+		previous = ownerAccountOutboundURLs(existing.Credentials, existing.Extra)
+	}
+	return checkOwnerAccountOutbound(ctx, credentials, extra, previous)
 }
 
 // ValidateOwnerAccountOutbound 供测试/同步等即时出站接口在发起请求前复查账户地址与所用代理，

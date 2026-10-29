@@ -222,7 +222,8 @@ func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, id int64, actorSc
 		duplicate.ID = 0
 		duplicate.CreatedAt = time.Time{}
 		duplicate.UpdatedAt = time.Time{}
-		if err := s.groupDuplicateRepo.CreateFromSource(ctx, duplicate, source.ID); err == nil {
+		// 副本复制了来源分组的账户绑定，归属随来源分组。
+		if err := s.groupDuplicateRepo.CreateFromSource(WithResourceOwner(ctx, source.OwnerUserID), duplicate, source.ID); err == nil {
 			hydrated, loadErr := s.groupRepo.GetByID(ctx, duplicate.ID)
 			if loadErr != nil {
 				return nil, fmt.Errorf("load duplicate group: %w", loadErr)

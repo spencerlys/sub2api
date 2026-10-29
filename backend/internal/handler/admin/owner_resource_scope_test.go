@@ -382,6 +382,26 @@ func TestOwnerForeignGroupIDsScope(t *testing.T) {
 	require.Equal(t, map[int64]struct{}{1: {}, 2: {}}, h.ownerForeignGroupIDs(ctx, account))
 }
 
+// 重新授权回写 Extra 前须校验出站地址，失败直接返回且不写入任何内容。
+func TestApplyOAuthCredentialsRejectsOwnerInternalCustomBaseURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := newStubAdminService()
+	stub.getAccountResult = &service.Account{ID: 1, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, OwnerUserID: ownerOf(7)}
+	h := NewAccountHandler(stub, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		principal := &adminaccess.Principal{OwnerUserID: 7, Policy: adminaccess.OwnerPolicy()}
+		c.Request = c.Request.WithContext(adminaccess.WithPrincipal(c.Request.Context(), principal))
+	})
+	router.POST("/accounts/:id/apply-oauth-credentials", h.ApplyOAuthCredentials)
+
+	code := ownerScopeCall(router, http.MethodPost, "/accounts/1/apply-oauth-credentials",
+		`{"type":"oauth","credentials":{"access_token":"t"},"extra":{"custom_base_url":"http://127.0.0.1:8443","custom_base_url_enabled":true}}`)
+	require.Equal(t, http.StatusBadRequest, code)
+	require.Zero(t, stub.updateAccountCalls)
+	require.Zero(t, stub.updateAccountExtraCalls)
+}
+
 type ownerLookupFailingService struct{ service.AdminService }
 
 func (ownerLookupFailingService) ResourceOwnerIDs(context.Context, string, []int64) (map[int64]*int64, error) {

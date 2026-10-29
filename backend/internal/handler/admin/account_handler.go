@@ -1697,6 +1697,11 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 	req.Credentials = service.MergeCredentials(existing.Credentials, req.Credentials)
 	// Drop SSO/password residue; re-auth must leave only OAuth tokens on disk.
 	req.Credentials = service.SanitizeStoredCredentials(existing.Platform, req.Credentials)
+	// 所有者：写入任何内容前校验新的出站地址（含下方 best-effort 合并的 Extra）。
+	if err := service.ValidateOwnerAccountOutboundChange(ctx, existing, req.Credentials, req.Extra); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	updatedAccount, err := h.adminService.UpdateAccount(ctx, accountID, &service.UpdateAccountInput{
 		Type:        req.Type,

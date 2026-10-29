@@ -11,6 +11,7 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/DATA-DOG/go-sqlmock"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -73,4 +74,15 @@ func TestSchedulablePoolsWithoutGroupExcludeOwnerAccounts(t *testing.T) {
 		return err
 	})
 	require.NotContains(t, where, "owner_user_id", "分组池必须保留绑定到该分组的所有者账户")
+}
+
+// 新建资源的归属：所有者请求取本人；管理员复制/建影子时取显式继承的来源归属；其余归管理员。
+func TestResourceOwnerIDInheritsCopySource(t *testing.T) {
+	inherited := int64(7)
+	require.Nil(t, resourceOwnerID(context.Background()))
+	require.Equal(t, &inherited, resourceOwnerID(service.WithResourceOwner(context.Background(), &inherited)))
+	require.Nil(t, resourceOwnerID(service.WithResourceOwner(context.Background(), nil)))
+	owner := adminaccess.WithPrincipal(context.Background(), &adminaccess.Principal{OwnerUserID: 9, Policy: adminaccess.OwnerPolicy()})
+	self := int64(9)
+	require.Equal(t, &self, resourceOwnerID(service.WithResourceOwner(owner, &inherited)))
 }

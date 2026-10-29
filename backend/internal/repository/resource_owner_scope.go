@@ -12,13 +12,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// resourceOwnerID 返回 AI 账号所有者请求中的用户 ID，用于登记新建资源的归属；
-// 管理员与后台任务返回 nil，资源归管理员所有。
+// resourceOwnerID 返回新建资源应登记的归属：AI 账号所有者请求取本人，复制/影子取服务端
+// 显式继承的来源归属；其余（管理员与后台任务）返回 nil，资源归管理员所有。
 func resourceOwnerID(ctx context.Context) *int64 {
-	if id := adminaccess.OwnerUserID(ctx); id > 0 {
-		return &id
-	}
-	return nil
+	return service.ResourceOwnerForCreate(ctx)
 }
 
 // 以下谓词在所有者请求中把列表限定为本人资源，其他身份返回空切片不追加条件。

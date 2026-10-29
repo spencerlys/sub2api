@@ -336,7 +336,8 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if s.accountDuplicateRepo == nil {
 		return nil, errors.New("account duplicate repository is not configured")
 	}
-	if err := s.accountDuplicateRepo.CreateWithAccountGroups(ctx, duplicate, groups); err != nil {
+	// 副本复制了来源凭证，归属随来源账户。
+	if err := s.accountDuplicateRepo.CreateWithAccountGroups(WithResourceOwner(ctx, source.OwnerUserID), duplicate, groups); err != nil {
 		return nil, fmt.Errorf("create duplicate account: %w", err)
 	}
 	for i := range groups {
@@ -548,6 +549,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 	// Never persist ephemeral SSO/password secrets after OAuth conversion.
 	input.Credentials = SanitizeStoredCredentials(input.Platform, input.Credentials)
+	if err := validateBedrockRegionCredential(input.Credentials); err != nil {
+		return nil, err
+	}
 
 	account, err := buildAccountForCreate(input, accountExtra)
 	if err != nil {
@@ -913,6 +917,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err := checkOwnerAccountOutbound(ctx, account.Credentials, account.Extra, previousOutboundURLs); err != nil {
 		return nil, err
 	}
+	if len(input.Credentials) > 0 {
+		if err := validateBedrockRegionCredential(account.Credentials); err != nil {
+			return nil, err
+		}
+	}
 
 	// 先验证分组是否存在（在任何写操作之前）
 	if input.GroupIDs != nil {
@@ -1008,12 +1017,21 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
 	delete(updates, OpenCodeGoUsageAutoRefreshExtraKey)
 	delete(updates, OpenCodeGoUsageSnapshotExtraKey)
-	if _, exists := updates[openAILongContextBillingEnabledKey]; exists {
+	_, hasLongContext := updates[openAILongContextBillingEnabledKey]
+	_, hasCustomBaseURL := updates["custom_base_url"]
+	hasCustomBaseURL = hasCustomBaseURL && adminaccess.OwnerUserID(ctx) > 0
+	if hasLongContext || hasCustomBaseURL {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
 			return err
 		}
-		if err := ValidateOpenAILongContextBillingExtra(account.Platform, updates); err != nil {
+		if hasLongContext {
+			if err := ValidateOpenAILongContextBillingExtra(account.Platform, updates); err != nil {
+				return err
+			}
+		}
+		// 所有者新写入的 custom_base_url 不得指向内网，现值保持不变放行。
+		if err := ValidateOwnerAccountOutboundChange(ctx, account, nil, updates); err != nil {
 			return err
 		}
 	}
@@ -1175,6 +1193,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		return nil, err
 	}
 	if err := NormalizeProtocolRulesCredentials(input.Credentials); err != nil {
+		return nil, err
+	}
+	if err := validateBedrockRegionCredential(input.Credentials); err != nil {
 		return nil, err
 	}
 	// Bulk may mix platforms; always drop ephemeral SSO/password keys (cookie
@@ -1548,7 +1569,8 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 
 	// 5. 持久化（Create 填充 shadow.ID）。并发竞态:预查(步骤2)放行后另一请求抢先建成,本次会撞
 	// 一母一影唯一索引。复查确认确为"已存在"竞态时返回结构化 409 而非裸 500——外审 A/P1。
-	if err := s.accountRepo.Create(ctx, shadow); err != nil {
+	// 影子带着母账号凭证路由，归属随母账号（管理员为所有者账户建影子时不能变成管理员资源）。
+	if err := s.accountRepo.Create(WithResourceOwner(ctx, parent.OwnerUserID), shadow); err != nil {
 		if existing, qerr := s.accountRepo.ListShadowsByParent(ctx, parentID); qerr == nil && len(existing) > 0 {
 			return nil, infraerrors.New(http.StatusConflict, "SPARK_SHADOW_ALREADY_EXISTS",
 				"parent account already has a spark shadow account")

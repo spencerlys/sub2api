@@ -245,17 +245,31 @@ func TestBedrockEventStreamDecoder(t *testing.T) {
 
 func TestBuildBedrockURL(t *testing.T) {
 	t.Run("stream URL with colon in model ID", func(t *testing.T) {
-		url := BuildBedrockURL("us-east-1", "us.anthropic.claude-opus-4-5-20251101-v1:0", true)
+		url, err := BuildBedrockURL("us-east-1", "us.anthropic.claude-opus-4-5-20251101-v1:0", true)
+		require.NoError(t, err)
 		assert.Equal(t, "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-opus-4-5-20251101-v1%3A0/invoke-with-response-stream", url)
 	})
 
 	t.Run("non-stream URL with colon in model ID", func(t *testing.T) {
-		url := BuildBedrockURL("eu-west-1", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0", false)
+		url, err := BuildBedrockURL("eu-west-1", "eu.anthropic.claude-sonnet-4-5-20250929-v1:0", false)
+		require.NoError(t, err)
 		assert.Equal(t, "https://bedrock-runtime.eu-west-1.amazonaws.com/model/eu.anthropic.claude-sonnet-4-5-20250929-v1%3A0/invoke", url)
 	})
 
 	t.Run("model ID without colon", func(t *testing.T) {
-		url := BuildBedrockURL("us-east-1", "us.anthropic.claude-sonnet-4-6", true)
+		url, err := BuildBedrockURL("us-east-1", "us.anthropic.claude-sonnet-4-6", true)
+		require.NoError(t, err)
 		assert.Equal(t, "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.anthropic.claude-sonnet-4-6/invoke-with-response-stream", url)
 	})
+}
+
+func TestBuildBedrockURLRejectsMalformedRegion(t *testing.T) {
+	for _, region := range []string{"us-gov-west-1", "cn-northwest-1", "ap-southeast-5", "us-isob-east-1", "eusc-de-east-1", ""} {
+		_, err := BuildBedrockURL(region, "anthropic.claude", false)
+		require.NoError(t, err, region)
+	}
+	for _, region := range []string{"x@127.0.0.1:8443/#", "us-east-1.evil.com", "us-east-1/", "localhost", "US-EAST-1", "global"} {
+		_, err := BuildBedrockURL(region, "anthropic.claude", false)
+		require.ErrorIs(t, err, ErrBedrockRegionInvalid, region)
+	}
 }

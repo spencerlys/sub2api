@@ -729,7 +729,10 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	bedrockBody, _ := json.Marshal(bedrockPayload)
 
 	// Use non-streaming endpoint (response is standard Claude JSON)
-	apiURL := BuildBedrockURL(region, testModelID, false)
+	apiURL, err := BuildBedrockURL(region, testModelID, false)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
