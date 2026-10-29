@@ -239,9 +239,7 @@
   max-width: min(280px, calc(100vw - 32px)) !important;
 }
 .driver-popover.tour-popover-docked .driver-popover-arrow { display: none !important; }
-/* The docked step is advanced by business code: Back/Next would do nothing useful
-   (driver's inline display:none loses to the button rule above), and the
-   keyboard hints would overflow the narrow footer. */
+/* The docked step only offers Skip: Back would return to a submit button that is no
+   longer on screen, and the keyboard hints would overflow the narrow footer. */
 .driver-popover.tour-popover-docked .driver-popover-prev-btn,
-.driver-popover.tour-popover-docked .driver-popover-next-btn,
 .driver-popover.tour-popover-docked .footer-shortcuts { display: none !important; }

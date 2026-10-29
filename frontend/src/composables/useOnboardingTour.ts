@@ -35,6 +35,23 @@ export function useOnboardingTour(options: OnboardingOptions) {
            step.popover.showButtons[0] === 'close'
   }
 
+  // Helper: a form's submit button; business code advances the tour after it succeeds
+  const isSubmitTarget = (element: Element | null): boolean =>
+    element instanceof HTMLElement &&
+    (element.getAttribute('type') === 'submit' || (element.tagName === 'BUTTON' && element.closest('form') !== null))
+
+  // Helper: steps that only continue after a real save (submit buttons, the account
+  // authorization dialog). The tour must not force the user to fill a form, so Next
+  // skips them instead of pressing the target.
+  const isSkippableStep = (step: DriveStep | undefined): boolean => {
+    if (!step || !isInteractiveStep(step)) return false
+    if (isManualAdvanceStep(step)) return true
+    const element = typeof step.element === 'string'
+      ? document.querySelector(step.element)
+      : typeof step.element === 'function' ? step.element() : step.element
+    return isSubmitTarget(element ?? null)
+  }
+
   // Helper: Clean up click listener
   const cleanupClickListener = () => {
     if (!currentClickListener) return
@@ -129,6 +146,23 @@ export function useOnboardingTour(options: OnboardingOptions) {
       driverInstance.destroy()
     }
 
+    // Skip a step that needs a real save: close the open dialog, then go to the next
+    // step whose target is on screen, passing over steps that depend on the skipped
+    // resource (e.g. the authorization dialog or the new account's row).
+    const skipForward = async (fromIndex: number) => {
+      document.querySelectorAll<HTMLElement>('[role="dialog"] button[aria-label="Close modal"]').forEach((button) => button.click())
+      await nextTick()
+      await new Promise((resolve) => setTimeout(resolve, TIMING.INTERACTIVE_WAIT_MS))
+      for (let index = fromIndex + 1; index < steps.length; index++) {
+        const target = steps[index].element
+        if (typeof target !== 'string' || document.querySelector(target)) {
+          driverInstance?.moveTo(index)
+          return
+        }
+      }
+      driverInstance?.moveTo(steps.length - 1)
+    }
+
     // 创建新的 driver 实例并存储到 store
     driverInstance = driver({
       showProgress: true,
@@ -136,6 +170,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
       animate: true,
       allowClose: false, // 禁止点击遮罩关闭
       stagePadding: 4,
+      // Lighter than driver's default 0.7 so the rest of a form stays readable.
+      overlayOpacity: 0.4,
       popoverClass: 'theme-tour-popover',
       nextBtnText: t('common.next'),
       prevBtnText: t('common.back'),
@@ -152,6 +188,11 @@ export function useOnboardingTour(options: OnboardingOptions) {
           // 注意：交互式步骤通常隐藏 Next 按钮，此处逻辑为防御性编程
           const currentIndex = state.activeIndex ?? 0
           const currentStep = steps[currentIndex]
+
+          if (isSkippableStep(currentStep)) {
+            await skipForward(currentIndex)
+            return
+          }
 
           if (currentStep && isInteractiveStep(currentStep) && currentStep.element) {
             const targetElement = typeof currentStep.element === 'string'
@@ -203,7 +244,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
 
           // Manually advanced steps continue only after business code succeeds, so
           // "Press Enter or Click to continue" would be wrong there.
-          if (currentStep && isInteractiveStep(currentStep) && !isManualAdvanceStep(currentStep) && popover.description) {
+          if (currentStep && isInteractiveStep(currentStep) && !isSkippableStep(currentStep) && popover.description) {
             const hintClass = 'driver-popover-description-hint'
             if (!popover.description.querySelector(`.${hintClass}`)) {
               const hint = document.createElement('div')
@@ -284,6 +325,9 @@ export function useOnboardingTour(options: OnboardingOptions) {
              } else {
                activeNextBtn.classList.remove(CLASS_DONE_BTN)
              }
+             if (isSkippableStep(currentStep)) {
+               activeNextBtn.textContent = t('onboarding.skipStep')
+             }
           }
         } catch (e) {
           console.error('Onboarding Tour Render Error:', e)
@@ -328,10 +372,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
 
           // Check if this is a submit button - if so, don't bind auto-advance listeners
           // Let business code (e.g., handleCreateGroup) manually call nextStep after success
-          const isSubmitButton = htmlElement.getAttribute('type') === 'submit' ||
-                                (htmlElement.tagName === 'BUTTON' && htmlElement.closest('form'))
-
-          if (isSubmitButton) {
+          if (isSubmitTarget(htmlElement)) {
             return // Don't bind any click listeners for submit buttons
           }
 

@@ -145,6 +145,7 @@ export default {
     confirmDontShow: '确定不再显示新手引导吗？\n\n您可以随时在右上角头像菜单中重新开启。',
     confirmExit: '确定要退出新手引导吗？您可以随时在右上角菜单重新开始。',
     interactiveHint: '按 Enter 或点击继续',
+    skipStep: '跳过',
     navigation: {
       flipPage: '翻页',
       exit: '退出'
