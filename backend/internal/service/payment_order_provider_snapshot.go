@@ -188,6 +188,16 @@ func validateProviderSnapshotMetadata(order *dbent.PaymentOrder, providerKey str
 				return fmt.Errorf("easypay pid mismatch: expected %s, got %s", expected, actual)
 			}
 		}
+	case payment.TypeShop01:
+		if expected := strings.TrimSpace(snapshot.MerchantID); expected != "" {
+			actual := strings.TrimSpace(metadata["merchant_no"])
+			if actual == "" {
+				return fmt.Errorf("shop01 merchant_no missing")
+			}
+			if expected != actual {
+				return fmt.Errorf("shop01 merchant_no mismatch: expected %s, got %s", expected, actual)
+			}
+		}
 	case payment.TypeStripe:
 		if expected := strings.TrimSpace(snapshot.Currency); expected != "" {
 			actual := strings.ToUpper(strings.TrimSpace(metadata["currency"]))

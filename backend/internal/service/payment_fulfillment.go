@@ -137,6 +137,23 @@ func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo 
 		})
 		return fmt.Errorf("invalid paid amount from provider: %v", paid)
 	}
+	if isShop01Order(o) || strings.EqualFold(strings.TrimSpace(pk), payment.TypeShop01) {
+		// SHOP01 attributes payments to orders by exact amount, so the
+		// usual 0.01 tolerance would credit a neighbouring order's payment.
+		expectedCents := amountToCents(o.PayAmount)
+		paidCents, parseErr := shop01ExactAmountCents(paid, metadata)
+		if parseErr != nil || paidCents != expectedCents {
+			s.writeAuditLog(ctx, o.ID, "PAYMENT_AMOUNT_MISMATCH", pk, map[string]any{
+				"expected":      o.PayAmount,
+				"paid":          paid,
+				"paidRaw":       metadata[payment.MetadataKeyExactAmount],
+				"tradeNo":       tradeNo,
+				"exactRequired": true,
+			})
+			return fmt.Errorf("amount mismatch: expected exactly %d cents, got %s", expectedCents, strconv.FormatFloat(paid, 'f', -1, 64))
+		}
+		return s.toPaid(ctx, o, tradeNo, paid, pk)
+	}
 	if math.Abs(paid-o.PayAmount) > paymentAmountToleranceForCurrency(PaymentOrderCurrency(o)) {
 		s.writeAuditLog(ctx, o.ID, "PAYMENT_AMOUNT_MISMATCH", pk, map[string]any{"expected": o.PayAmount, "paid": paid, "tradeNo": tradeNo})
 		return fmt.Errorf("amount mismatch: expected %s, got %s", strconv.FormatFloat(o.PayAmount, 'f', -1, 64), strconv.FormatFloat(paid, 'f', -1, 64))
@@ -179,21 +196,29 @@ func (s *PaymentService) toPaid(ctx context.Context, o *dbent.PaymentOrder, trad
 	previousStatus := o.Status
 	now := time.Now()
 	grace := now.Add(-paymentGraceMinutes * time.Minute)
+	payable := paymentorder.Or(
+		paymentorder.StatusEQ(OrderStatusPending),
+		paymentorder.StatusEQ(OrderStatusCancelled),
+		paymentorder.And(
+			paymentorder.StatusEQ(OrderStatusExpired),
+			paymentorder.UpdatedAtGTE(grace),
+		),
+	)
+	shop01 := isShop01Order(o)
+	if shop01 {
+		payable = shop01PayableStatus(o, now)
+	}
 	c, err := s.entClient.PaymentOrder.Update().Where(
 		paymentorder.IDEQ(o.ID),
-		paymentorder.Or(
-			paymentorder.StatusEQ(OrderStatusPending),
-			paymentorder.StatusEQ(OrderStatusCancelled),
-			paymentorder.And(
-				paymentorder.StatusEQ(OrderStatusExpired),
-				paymentorder.UpdatedAtGTE(grace),
-			),
-		),
+		payable,
 	).SetStatus(OrderStatusPaid).SetPayAmount(paid).SetPaymentTradeNo(tradeNo).SetPaidAt(now).ClearFailedAt().ClearFailedReason().Save(ctx)
 	if err != nil {
 		return fmt.Errorf("update to PAID: %w", err)
 	}
 	if c == 0 {
+		if shop01 {
+			return s.shop01AlreadyProcessed(ctx, o, tradeNo, paid, pk)
+		}
 		return s.alreadyProcessed(ctx, o)
 	}
 	if previousStatus == OrderStatusCancelled || previousStatus == OrderStatusExpired {

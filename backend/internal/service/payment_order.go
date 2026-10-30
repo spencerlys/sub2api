@@ -109,6 +109,12 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if err != nil {
 		return nil, err
 	}
+	if isShop01Selection(sel) {
+		// The exact-amount allocator may have moved pay_amount by k cents;
+		// the gateway must be asked for exactly the persisted amount.
+		payAmount = order.PayAmount
+		payAmountStr = decimal.New(amountToCents(order.PayAmount), -2).StringFixed(2)
+	}
 	resp, err := s.invokeProvider(ctx, order, req, cfg, limitAmount, payAmountStr, payAmount, plan, sel)
 	if err != nil {
 		_, _ = s.entClient.PaymentOrder.UpdateOneID(order.ID).
@@ -175,7 +181,12 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 	if tm <= 0 {
 		tm = defaultOrderTimeoutMin
 	}
-	exp := time.Now().Add(time.Duration(tm) * time.Minute)
+	now := time.Now()
+	exp := now.Add(time.Duration(tm) * time.Minute)
+	if isShop01Selection(sel) && exp.Before(now.Add(shop01GatewayOrderTTL)) {
+		// A payment the gateway still accepts must never land on an order we already expired.
+		exp = now.Add(shop01GatewayOrderTTL)
+	}
 	outTradeNo, err := s.allocateOutTradeNo(ctx, tx)
 	if err != nil {
 		return nil, err
@@ -186,6 +197,21 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 	if sel != nil {
 		selectedInstanceID = strings.TrimSpace(sel.InstanceID)
 		selectedProviderKey = strings.TrimSpace(sel.ProviderKey)
+	}
+	if isShop01Selection(sel) {
+		alloc, err := allocateShop01PayAmount(ctx, tx, selectedInstanceID, payAmount, now)
+		if err != nil {
+			return nil, err
+		}
+		payAmount = centsToAmount(alloc.PayCents)
+		if alloc.OffsetCents > 0 && plan == nil && req.OrderType == payment.OrderTypeBalance {
+			// The payer pays k extra cents to make the amount unique; credit
+			// them too. amount is the credited total (bonus included), so
+			// both columns move together and doBalance credits amount.
+			extra := decimal.NewFromFloat(shop01OffsetCredit(alloc.OffsetCents, cfg.BalanceRechargeMultiplier))
+			orderAmount = decimal.NewFromFloat(orderAmount).Add(extra).Round(2).InexactFloat64()
+			bonusAmount = decimal.NewFromFloat(bonusAmount).Add(extra).Round(2).InexactFloat64()
+		}
 	}
 	b := tx.PaymentOrder.Create().
 		SetUserID(req.UserID).
@@ -309,6 +335,12 @@ func buildPaymentOrderProviderSnapshot(sel *payment.InstanceSelection, req Creat
 	}
 	if providerKey == payment.TypeStripe {
 		snapshot["currency"] = paymentProviderConfigCurrency(providerKey, sel.Config)
+	}
+	if providerKey == payment.TypeShop01 {
+		if merchantNo := strings.TrimSpace(sel.Config["merchantNo"]); merchantNo != "" {
+			snapshot["merchant_id"] = merchantNo
+		}
+		snapshot["currency"] = payment.DefaultPaymentCurrency
 	}
 	if providerKey == payment.TypeAirwallex {
 		if accountID := strings.TrimSpace(sel.Config["accountId"]); accountID != "" {
@@ -473,6 +505,7 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 		SetNillablePaymentTradeNo(psNilIfEmpty(pr.TradeNo)).
 		SetNillablePayURL(psNilIfEmpty(pr.PayURL)).
 		SetNillableQrCode(psNilIfEmpty(pr.QRCode)).
+		SetNillableQrCodeImg(psNilIfEmpty(pr.QRCodeImg)).
 		SetNillableProviderInstanceID(psNilIfEmpty(sel.InstanceID)).
 		SetNillableProviderKey(psNilIfEmpty(sel.ProviderKey)).
 		Save(ctx)
@@ -513,6 +546,7 @@ func sanitizeCreatePaymentResponseDetails(pr *payment.CreatePaymentResponse) {
 	pr.TradeNo = removePostgresTextNUL(pr.TradeNo)
 	pr.PayURL = removePostgresTextNUL(pr.PayURL)
 	pr.QRCode = removePostgresTextNUL(pr.QRCode)
+	pr.QRCodeImg = removePostgresTextNUL(pr.QRCodeImg)
 }
 
 func removePostgresTextNUL(value string) string {
@@ -754,6 +788,7 @@ func buildCreateOrderResponse(order *dbent.PaymentOrder, req CreateOrderRequest,
 		OutTradeNo:   order.OutTradeNo,
 		PayURL:       pr.PayURL,
 		QRCode:       pr.QRCode,
+		QRCodeImg:    pr.QRCodeImg,
 		ClientSecret: pr.ClientSecret,
 		IntentID:     pr.IntentID,
 		Currency:     pr.Currency,

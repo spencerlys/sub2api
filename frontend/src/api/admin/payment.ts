@@ -12,6 +12,7 @@ import type {
   ProviderInstance
 } from '@/types/payment'
 import type { BasePaginationResponse } from '@/types'
+import type { RechargeRateMarkupMode } from '@/utils/rechargeRate'
 
 /** Admin-facing payment config returned by GET /admin/payment/config */
 export interface AdminPaymentConfig {
@@ -53,6 +54,23 @@ export interface UpdatePaymentConfigRequest {
   help_text?: string
 }
 
+/** Auto recharge-rate state returned by POST /admin/payment/recharge-rate/refresh */
+export interface RechargeRateState {
+  auto_enabled: boolean
+  markup_mode: RechargeRateMarkupMode
+  markup_value: number
+  /** CNY per 1 USD; 0 = not fetched yet */
+  market_rate: number
+  fetched_at: string
+  source: string
+  /** CNY per 1 USD after markup; 0 = no market rate */
+  effective_rate: number
+  /** 1 / effective_rate (6 dp); 0 = no market rate */
+  computed_multiplier: number
+  /** multiplier currently used for crediting */
+  balance_recharge_multiplier: number
+}
+
 export interface RefundResult {
   success: boolean
   warning?: string
@@ -72,6 +90,11 @@ export const adminPaymentAPI = {
   /** Update payment configuration */
   updateConfig(data: UpdatePaymentConfigRequest) {
     return apiClient.put('/admin/payment/config', data)
+  },
+
+  /** Fetch the USD/CNY market rate now; applies the multiplier when auto mode is on */
+  refreshRechargeRate() {
+    return apiClient.post<RechargeRateState>('/admin/payment/recharge-rate/refresh')
   },
 
   // ==================== Dashboard ====================

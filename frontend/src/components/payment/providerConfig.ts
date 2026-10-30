@@ -13,6 +13,15 @@ export interface ConfigFieldDef {
   defaultValue?: string
   hintKey?: string
   options?: TypeOption[]
+  /** Literal placeholder shown in an empty input (not applied as a value). */
+  placeholder?: string
+  /**
+   * Explicit input control. When omitted, PaymentProviderDialog falls back to
+   * the legacy heuristic in resolveFieldInputType (sensitive "*key*" fields →
+   * textarea, other sensitive fields → password input, options → select,
+   * everything else → text input).
+   */
+  inputType?: 'text' | 'password' | 'textarea'
 }
 
 export interface TypeOption {
@@ -42,6 +51,7 @@ export const PROVIDER_SUPPORTED_TYPES: Record<string, string[]> = {
   wxpay: ['wxpay'],
   stripe: ['card', 'alipay', 'wxpay', 'link'],
   airwallex: ['airwallex'],
+  shop01: ['alipay'],
 }
 
 /** Available payment modes for EasyPay providers. */
@@ -110,6 +120,7 @@ export const WEBHOOK_PATHS: Record<string, string> = {
   wxpay: '/api/v1/payment/webhook/wxpay',
   stripe: '/api/v1/payment/webhook/stripe',
   airwallex: '/api/v1/payment/webhook/airwallex',
+  shop01: '/api/v1/payment/webhook/shop01',
 }
 
 export const RETURN_PATH = '/payment/result'
@@ -119,6 +130,8 @@ export const PROVIDER_CALLBACK_PATHS: Record<string, CallbackPaths> = {
   easypay: { notifyUrl: WEBHOOK_PATHS.easypay, returnUrl: RETURN_PATH },
   alipay: { notifyUrl: WEBHOOK_PATHS.alipay, returnUrl: RETURN_PATH },
   wxpay: { notifyUrl: WEBHOOK_PATHS.wxpay },
+  // shop01: notifyUrl = editable base URL + fixed webhook path (no return URL).
+  shop01: { notifyUrl: WEBHOOK_PATHS.shop01 },
   // stripe: 不需要回调 URL 配置，Webhook 单独配置。
   // airwallex: 不需要回调 URL 配置，Webhook 在空中云汇后台配置。
 }
@@ -161,6 +174,28 @@ export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
     { key: 'currency', label: '', sensitive: false, defaultValue: 'CNY', hintKey: 'admin.settings.payment.field_paymentCurrencyHint', options: PAYMENT_CURRENCY_OPTIONS },
     { key: 'accountId', label: '', sensitive: false, optional: true, clearable: true, hintKey: 'admin.settings.payment.field_accountIdHint' },
   ],
+  // The 4th config key, notifyUrl, is rendered via PROVIDER_CALLBACK_PATHS.
+  shop01: [
+    { key: 'merchantNo', label: '', sensitive: false },
+    { key: 'merchantKey', label: '', sensitive: true, inputType: 'password', hintKey: 'admin.settings.payment.field_merchantKeyHint' },
+    { key: 'apiBase', label: '', sensitive: false, placeholder: 'http://host:5000', hintKey: 'admin.settings.payment.field_shop01ApiBaseHint' },
+  ],
+}
+
+/** Resolve which input control a config field renders as. */
+export function resolveFieldInputType(field: ConfigFieldDef): 'text' | 'password' | 'textarea' | 'select' {
+  if (field.inputType) return field.inputType
+  if (field.sensitive && field.key.toLowerCase().includes('key') && field.key !== 'pkey') return 'textarea'
+  if (field.sensitive) return 'password'
+  if (field.options?.length) return 'select'
+  return 'text'
+}
+
+/** True when a config key is a secret for the given provider. */
+export function isSensitiveConfigField(providerKey: string, key: string): boolean {
+  return (PROVIDER_CONFIG_FIELDS[providerKey] || []).some(
+    f => f.sensitive && f.key.toLowerCase() === key.toLowerCase(),
+  )
 }
 
 // --- Helpers ---

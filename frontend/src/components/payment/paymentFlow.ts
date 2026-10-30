@@ -35,6 +35,8 @@ export interface PaymentRecoverySnapshot {
   orderId: number
   amount: number
   qrCode: string
+  /** Gateway-rendered QR image URL (shop01). Rendered as <img>, never re-encoded. */
+  qrCodeImg?: string
   expiresAt: string
   paymentType: string
   payUrl: string
@@ -155,6 +157,7 @@ export function decidePaymentLaunch(
     orderId: result.order_id,
     amount: result.amount,
     qrCode: result.qr_code || '',
+    ...(result.qr_code_img ? { qrCodeImg: result.qr_code_img } : {}),
     expiresAt: result.expires_at || '',
     paymentType: visibleMethod,
     payUrl: result.pay_url || '',
@@ -220,14 +223,20 @@ export function decidePaymentLaunch(
   const effectiveMobile = (context.forceQRCode && !context.mobilePrecreateDeepLink && visibleMethod === 'alipay')
     ? false
     : context.isMobile
-  const prefersRedirect = normalizedPaymentMode === 'redirect'
+  const hasQr = !!baseState.qrCode || !!baseState.qrCodeImg
+  // A gateway-rendered QR image (shop01) is always the primary inline view on
+  // desktop and mobile: its cashier page is plain http with no return URL, so
+  // redirecting (especially same-tab on mobile) strands the user there.
+  const prefersRedirect = !baseState.qrCodeImg && (
+    normalizedPaymentMode === 'redirect'
     || normalizedPaymentMode === 'popup'
     || (effectiveMobile && !!baseState.payUrl)
+  )
   const prefersQr = normalizedPaymentMode === 'qrcode'
     || normalizedPaymentMode === 'native'
-    || (!prefersRedirect && !!baseState.qrCode)
+    || (!prefersRedirect && hasQr)
 
-  if (visibleMethod === 'wxpay' && context.isWechatBrowser && baseState.payUrl && !baseState.qrCode) {
+  if (visibleMethod === 'wxpay' && context.isWechatBrowser && baseState.payUrl && !hasQr) {
     return { kind: 'redirect_waiting', paymentState: baseState, recovery: baseState }
   }
 
@@ -235,7 +244,7 @@ export function decidePaymentLaunch(
     return { kind: 'redirect_waiting', paymentState: baseState, recovery: baseState }
   }
 
-  if (prefersQr && baseState.qrCode) {
+  if (prefersQr && hasQr) {
     return { kind: 'qr_waiting', paymentState: baseState, recovery: baseState }
   }
 
@@ -283,6 +292,7 @@ export function readPaymentRecoverySnapshot(
       typeof parsed.orderId !== 'number'
       || typeof parsed.amount !== 'number'
       || typeof parsed.qrCode !== 'string'
+      || (parsed.qrCodeImg != null && typeof parsed.qrCodeImg !== 'string')
       || typeof parsed.expiresAt !== 'string'
       || typeof parsed.paymentType !== 'string'
       || typeof parsed.payUrl !== 'string'
@@ -314,6 +324,7 @@ export function readPaymentRecoverySnapshot(
       orderId: parsed.orderId,
       amount: parsed.amount,
       qrCode: parsed.qrCode,
+      ...(parsed.qrCodeImg ? { qrCodeImg: parsed.qrCodeImg } : {}),
       expiresAt: parsed.expiresAt,
       paymentType: parsed.paymentType,
       payUrl: parsed.payUrl,

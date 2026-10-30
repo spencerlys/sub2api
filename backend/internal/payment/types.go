@@ -21,7 +21,15 @@ const (
 	TypeLink         PaymentType = "link"
 	TypeEasyPay      PaymentType = "easypay"
 	TypeAirwallex    PaymentType = "airwallex"
+	// TypeShop01 is the SHOP01 Alipay personal-QR collector. It is a provider
+	// key only: its instances serve the user-facing "alipay" method.
+	TypeShop01 PaymentType = "shop01"
 )
+
+// MetadataKeyExactAmount carries the provider-reported paid amount as the raw
+// decimal string from the notification/query, so exact-amount providers can be
+// checked in integer minor units instead of through a float64 round trip.
+const MetadataKeyExactAmount = "exact_amount"
 
 // Order status constants shared across payment and service layers.
 const (
@@ -89,6 +97,8 @@ func GetBasePaymentType(t string) string {
 		return TypeEasyPay
 	case t == TypeAirwallex:
 		return TypeAirwallex
+	case t == TypeShop01:
+		return TypeShop01
 	case t == TypeStripe || t == TypeCard || t == TypeLink:
 		return TypeStripe
 	case len(t) >= len(TypeAlipay) && t[:len(TypeAlipay)] == TypeAlipay:
@@ -151,6 +161,7 @@ type CreatePaymentResponse struct {
 	TradeNo      string                  // Third-party transaction ID
 	PayURL       string                  // H5 payment URL (alipay/wxpay)
 	QRCode       string                  // QR code content for scanning
+	QRCodeImg    string                  // URL of a ready-made QR image (rendered as <img>, never re-encoded)
 	ClientSecret string                  // Stripe PaymentIntent 客户端密钥
 	IntentID     string                  // 前端 SDK 需要的服务商支付意图 ID
 	Currency     string                  // 服务商支付币种

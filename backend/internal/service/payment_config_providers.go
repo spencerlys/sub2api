@@ -116,6 +116,7 @@ var providerSensitiveConfigFields = map[string]map[string]struct{}{
 	payment.TypeWxpay:     {"privatekey": {}, "apiv3key": {}, "publickey": {}},
 	payment.TypeStripe:    {"secretkey": {}, "webhooksecret": {}},
 	payment.TypeAirwallex: {"apikey": {}, "webhooksecret": {}},
+	payment.TypeShop01:    {"merchantkey": {}},
 }
 
 // providerPendingOrderProtectedConfigFields lists config keys that cannot be
@@ -128,6 +129,10 @@ var providerPendingOrderProtectedConfigFields = map[string]map[string]struct{}{
 	payment.TypeWxpay:     {"privatekey": {}, "apiv3key": {}, "publickey": {}, "appid": {}, "mpappid": {}, "mchid": {}, "publickeyid": {}, "certserial": {}},
 	payment.TypeStripe:    {"secretkey": {}, "webhooksecret": {}, "currency": {}},
 	payment.TypeAirwallex: {"clientid": {}, "apikey": {}, "webhooksecret": {}, "apibase": {}, "accountid": {}, "currency": {}},
+	// merchantNo is snapshotted into orders and checked on every notify;
+	// apiBase is where pending orders are reconciled. Neither may move under
+	// in-flight orders, exactly like the merchant key.
+	payment.TypeShop01: {"merchantkey": {}, "merchantno": {}, "apibase": {}},
 }
 
 func isSensitiveProviderConfigField(providerKey, fieldName string) bool {
@@ -179,6 +184,7 @@ func (s *PaymentConfigService) countPendingOrdersByPlan(ctx context.Context, pla
 
 var validProviderKeys = map[string]bool{
 	payment.TypeEasyPay: true, payment.TypeAlipay: true, payment.TypeWxpay: true, payment.TypeStripe: true, payment.TypeAirwallex: true,
+	payment.TypeShop01: true,
 }
 
 func (s *PaymentConfigService) CreateProviderInstance(ctx context.Context, req CreateProviderInstanceRequest) (*dbent.PaymentProviderInstance, error) {
@@ -193,6 +199,11 @@ func (s *PaymentConfigService) CreateProviderInstance(ctx context.Context, req C
 	}
 	if err := s.validateVisibleMethodEnablementConflicts(ctx, 0, req.ProviderKey, typesStr, req.Enabled); err != nil {
 		return nil, err
+	}
+	if req.ProviderKey == payment.TypeShop01 {
+		if err := s.validateShop01MerchantNoUnique(ctx, 0, req.Config); err != nil {
+			return nil, err
+		}
 	}
 	if req.Enabled {
 		if err := s.validateProviderConfig(req.ProviderKey, req.Config); err != nil {
@@ -325,6 +336,11 @@ func (s *PaymentConfigService) UpdateProviderInstance(ctx context.Context, id in
 		mergedConfig, err = s.mergeConfig(ctx, id, req.Config)
 		if err != nil {
 			return nil, err
+		}
+		if current.ProviderKey == payment.TypeShop01 {
+			if err := s.validateShop01MerchantNoUnique(ctx, id, mergedConfig); err != nil {
+				return nil, err
+			}
 		}
 		if hasPendingOrderProtectedConfigChange(current.ProviderKey, currentConfig, mergedConfig) {
 			count, err := getPendingOrderCount()

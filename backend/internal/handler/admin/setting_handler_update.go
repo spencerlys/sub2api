@@ -323,8 +323,12 @@ type UpdateSettingsRequest struct {
 	PaymentEnabledTypes              []string `json:"payment_enabled_types"`
 	PaymentBalanceDisabled           *bool    `json:"payment_balance_disabled"`
 	PaymentBalanceRechargeMultiplier *float64 `json:"payment_balance_recharge_multiplier"`
-	PaymentSubscriptionUSDToCNYRate  *float64 `json:"payment_subscription_usd_to_cny_rate"`
-	PaymentRechargeFeeRate           *float64 `json:"payment_recharge_fee_rate"`
+	// Auto recharge rate; market rate/fetched_at/source are job-written and read-only.
+	PaymentBalanceRechargeRateAutoEnabled *bool    `json:"payment_balance_recharge_rate_auto_enabled"`
+	PaymentBalanceRechargeRateMarkupMode  *string  `json:"payment_balance_recharge_rate_markup_mode"`
+	PaymentBalanceRechargeRateMarkupValue *float64 `json:"payment_balance_recharge_rate_markup_value"`
+	PaymentSubscriptionUSDToCNYRate       *float64 `json:"payment_subscription_usd_to_cny_rate"`
+	PaymentRechargeFeeRate                *float64 `json:"payment_recharge_fee_rate"`
 	// nil 表示不更新；空数组表示清空阶梯
 	PaymentRechargeBonusTiers  *[]dto.RechargeBonusTier `json:"payment_recharge_bonus_tiers"`
 	PaymentRechargeBonusMode   *string                  `json:"payment_recharge_bonus_mode"`
@@ -2144,32 +2148,35 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	// Skip if no payment fields were provided (prevents accidental wipe).
 	if h.paymentConfigService != nil && hasPaymentFields(req) {
 		paymentReq := service.UpdatePaymentConfigRequest{
-			Enabled:                       req.PaymentEnabled,
-			MinAmount:                     req.PaymentMinAmount,
-			MaxAmount:                     req.PaymentMaxAmount,
-			DailyLimit:                    req.PaymentDailyLimit,
-			OrderTimeoutMin:               req.PaymentOrderTimeoutMin,
-			MaxPendingOrders:              req.PaymentMaxPendingOrders,
-			EnabledTypes:                  req.PaymentEnabledTypes,
-			BalanceDisabled:               req.PaymentBalanceDisabled,
-			BalanceRechargeMultiplier:     req.PaymentBalanceRechargeMultiplier,
-			SubscriptionUSDToCNYRate:      req.PaymentSubscriptionUSDToCNYRate,
-			RechargeFeeRate:               req.PaymentRechargeFeeRate,
-			RechargeBonusTiers:            rechargeBonusTiersFromDTO(req.PaymentRechargeBonusTiers),
-			RechargeBonusMode:             req.PaymentRechargeBonusMode,
-			RechargeBonusNotice:           req.PaymentRechargeBonusNotice,
-			LoadBalanceStrategy:           req.PaymentLoadBalanceStrat,
-			ProductNamePrefix:             req.PaymentProductNamePrefix,
-			ProductNameSuffix:             req.PaymentProductNameSuffix,
-			HelpImageURL:                  req.PaymentHelpImageURL,
-			HelpText:                      req.PaymentHelpText,
-			CancelRateLimitEnabled:        req.PaymentCancelRateLimitEnabled,
-			CancelRateLimitMax:            req.PaymentCancelRateLimitMax,
-			CancelRateLimitWindow:         req.PaymentCancelRateLimitWindow,
-			CancelRateLimitUnit:           req.PaymentCancelRateLimitUnit,
-			CancelRateLimitMode:           req.PaymentCancelRateLimitMode,
-			AlipayForceQRCode:             req.PaymentAlipayForceQRCode,
-			AlipayMobilePrecreateDeepLink: req.PaymentAlipayMobilePrecreateDeepLink,
+			Enabled:                        req.PaymentEnabled,
+			MinAmount:                      req.PaymentMinAmount,
+			MaxAmount:                      req.PaymentMaxAmount,
+			DailyLimit:                     req.PaymentDailyLimit,
+			OrderTimeoutMin:                req.PaymentOrderTimeoutMin,
+			MaxPendingOrders:               req.PaymentMaxPendingOrders,
+			EnabledTypes:                   req.PaymentEnabledTypes,
+			BalanceDisabled:                req.PaymentBalanceDisabled,
+			BalanceRechargeMultiplier:      req.PaymentBalanceRechargeMultiplier,
+			BalanceRechargeRateAutoEnabled: req.PaymentBalanceRechargeRateAutoEnabled,
+			BalanceRechargeRateMarkupMode:  req.PaymentBalanceRechargeRateMarkupMode,
+			BalanceRechargeRateMarkupValue: req.PaymentBalanceRechargeRateMarkupValue,
+			SubscriptionUSDToCNYRate:       req.PaymentSubscriptionUSDToCNYRate,
+			RechargeFeeRate:                req.PaymentRechargeFeeRate,
+			RechargeBonusTiers:             rechargeBonusTiersFromDTO(req.PaymentRechargeBonusTiers),
+			RechargeBonusMode:              req.PaymentRechargeBonusMode,
+			RechargeBonusNotice:            req.PaymentRechargeBonusNotice,
+			LoadBalanceStrategy:            req.PaymentLoadBalanceStrat,
+			ProductNamePrefix:              req.PaymentProductNamePrefix,
+			ProductNameSuffix:              req.PaymentProductNameSuffix,
+			HelpImageURL:                   req.PaymentHelpImageURL,
+			HelpText:                       req.PaymentHelpText,
+			CancelRateLimitEnabled:         req.PaymentCancelRateLimitEnabled,
+			CancelRateLimitMax:             req.PaymentCancelRateLimitMax,
+			CancelRateLimitWindow:          req.PaymentCancelRateLimitWindow,
+			CancelRateLimitUnit:            req.PaymentCancelRateLimitUnit,
+			CancelRateLimitMode:            req.PaymentCancelRateLimitMode,
+			AlipayForceQRCode:              req.PaymentAlipayForceQRCode,
+			AlipayMobilePrecreateDeepLink:  req.PaymentAlipayMobilePrecreateDeepLink,
 		}
 		if err := h.paymentConfigService.UpdatePaymentConfig(c.Request.Context(), paymentReq); err != nil {
 			response.ErrorFrom(c, err)
@@ -2436,6 +2443,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentEnabledTypes:                                    updatedPaymentCfg.EnabledTypes,
 		PaymentBalanceDisabled:                                 updatedPaymentCfg.BalanceDisabled,
 		PaymentBalanceRechargeMultiplier:                       updatedPaymentCfg.BalanceRechargeMultiplier,
+		PaymentBalanceRechargeRateAutoEnabled:                  updatedPaymentCfg.BalanceRechargeRateAutoEnabled,
+		PaymentBalanceRechargeRateMarkupMode:                   updatedPaymentCfg.BalanceRechargeRateMarkupMode,
+		PaymentBalanceRechargeRateMarkupValue:                  updatedPaymentCfg.BalanceRechargeRateMarkupValue,
+		PaymentBalanceRechargeRateMarket:                       updatedPaymentCfg.BalanceRechargeRateMarket,
+		PaymentBalanceRechargeRateFetchedAt:                    updatedPaymentCfg.BalanceRechargeRateFetchedAt,
+		PaymentBalanceRechargeRateSource:                       updatedPaymentCfg.BalanceRechargeRateSource,
+		PaymentBalanceRechargeRateEffective:                    updatedPaymentCfg.BalanceRechargeRateEffective,
 		PaymentSubscriptionUSDToCNYRate:                        updatedPaymentCfg.SubscriptionUSDToCNYRate,
 		PaymentRechargeFeeRate:                                 updatedPaymentCfg.RechargeFeeRate,
 		PaymentRechargeBonusTiers:                              rechargeBonusTiersToDTO(updatedPaymentCfg.RechargeBonusTiers),
@@ -2516,6 +2530,8 @@ func hasPaymentFields(req UpdateSettingsRequest) bool {
 		req.PaymentOrderTimeoutMin != nil || req.PaymentMaxPendingOrders != nil ||
 		req.PaymentEnabledTypes != nil || req.PaymentBalanceDisabled != nil ||
 		req.PaymentBalanceRechargeMultiplier != nil || req.PaymentSubscriptionUSDToCNYRate != nil ||
+		req.PaymentBalanceRechargeRateAutoEnabled != nil || req.PaymentBalanceRechargeRateMarkupMode != nil ||
+		req.PaymentBalanceRechargeRateMarkupValue != nil ||
 		req.PaymentRechargeFeeRate != nil ||
 		req.PaymentRechargeBonusTiers != nil || req.PaymentRechargeBonusMode != nil || req.PaymentRechargeBonusNotice != nil ||
 		req.PaymentLoadBalanceStrat != nil || req.PaymentProductNamePrefix != nil ||

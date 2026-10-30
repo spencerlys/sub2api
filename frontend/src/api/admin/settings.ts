@@ -13,6 +13,7 @@ import type {
   NotifyEmailEntry,
 } from "@/types";
 import type { RechargeBonusTier } from "@/utils/rechargeBonus";
+import type { RechargeRateMarkupMode } from "@/utils/rechargeRate";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
@@ -132,6 +133,7 @@ export type PaymentVisibleMethodSource =
   | ""
   | "official_alipay"
   | "easypay_alipay"
+  | "shop01_alipay"
   | "official_wxpay"
   | "easypay_wxpay";
 export type WeChatConnectMode = "open" | "mp" | "mobile";
@@ -175,6 +177,11 @@ const PAYMENT_VISIBLE_METHOD_SOURCE_OPTIONS: Record<
       labelZh: "易支付支付宝",
       labelEn: "EasyPay Alipay",
     },
+    {
+      value: "shop01_alipay",
+      labelZh: "SHOP01 支付宝",
+      labelEn: "SHOP01 Alipay",
+    },
   ],
   wxpay: [
     { value: "", labelZh: "未配置", labelEn: "Not configured" },
@@ -201,6 +208,8 @@ const PAYMENT_VISIBLE_METHOD_SOURCE_ALIASES: Record<
     official: "official_alipay",
     easypay_alipay: "easypay_alipay",
     easypay: "easypay_alipay",
+    shop01_alipay: "shop01_alipay",
+    shop01: "shop01_alipay",
   },
   wxpay: {
     official_wxpay: "official_wxpay",
@@ -674,6 +683,14 @@ export interface SystemSettings {
   payment_enabled_types: string[];
   payment_balance_disabled: boolean;
   payment_balance_recharge_multiplier: number;
+  // Auto recharge rate (market USD/CNY + markup). market/fetched_at/source/effective are read-only.
+  payment_balance_recharge_rate_auto_enabled?: boolean;
+  payment_balance_recharge_rate_markup_mode?: RechargeRateMarkupMode;
+  payment_balance_recharge_rate_markup_value?: number;
+  payment_balance_recharge_rate_market?: number;
+  payment_balance_recharge_rate_fetched_at?: string;
+  payment_balance_recharge_rate_source?: string;
+  payment_balance_recharge_rate_effective?: number;
   payment_subscription_usd_to_cny_rate: number;
   payment_recharge_fee_rate: number;
   payment_recharge_bonus_tiers?: RechargeBonusTier[];
@@ -999,6 +1016,9 @@ export interface UpdateSettingsRequest {
   payment_enabled_types?: string[];
   payment_balance_disabled?: boolean;
   payment_balance_recharge_multiplier?: number;
+  payment_balance_recharge_rate_auto_enabled?: boolean;
+  payment_balance_recharge_rate_markup_mode?: RechargeRateMarkupMode;
+  payment_balance_recharge_rate_markup_value?: number;
   payment_subscription_usd_to_cny_rate?: number;
   payment_recharge_fee_rate?: number;
   payment_recharge_bonus_tiers?: RechargeBonusTier[];

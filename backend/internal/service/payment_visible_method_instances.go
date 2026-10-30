@@ -48,6 +48,18 @@ func enabledVisibleMethodsForProvider(providerKey, supportedTypes string) []stri
 		for _, supportedType := range splitTypes(supportedTypes) {
 			addMethod(supportedType)
 		}
+	case payment.TypeShop01:
+		// SHOP01 is an Alipay-only collector.
+		if strings.TrimSpace(supportedTypes) == "" {
+			addMethod(payment.TypeAlipay)
+			break
+		}
+		for _, supportedType := range splitTypes(supportedTypes) {
+			if NormalizeVisibleMethod(supportedType) == payment.TypeAlipay {
+				addMethod(payment.TypeAlipay)
+				break
+			}
+		}
 	}
 
 	methods := make([]string, 0, len(methodSet))

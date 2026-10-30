@@ -86,6 +86,8 @@ func RegisterPaymentRoutes(
 		webhook.POST("/wxpay", webhookHandler.WxpayNotify)
 		webhook.POST("/stripe", webhookHandler.StripeWebhook)
 		webhook.POST("/airwallex", webhookHandler.AirwallexWebhook)
+		webhook.GET("/shop01", webhookHandler.Shop01Notify)
+		webhook.POST("/shop01", webhookHandler.Shop01Notify)
 	}
 
 	// --- Admin payment endpoints (admin auth) ---
@@ -101,6 +103,7 @@ func RegisterPaymentRoutes(
 		// Config
 		adminGroup.GET("/config", adminPaymentHandler.GetConfig)
 		adminGroup.PUT("/config", adminPaymentHandler.UpdateConfig)
+		adminGroup.POST("/recharge-rate/refresh", adminPaymentHandler.RefreshRechargeRate)
 
 		// Orders
 		adminOrders := adminGroup.Group("/orders")

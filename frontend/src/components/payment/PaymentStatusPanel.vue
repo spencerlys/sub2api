@@ -175,19 +175,64 @@
       <div class="card p-6">
         <div class="flex flex-col items-center space-y-4">
           <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ scanTitle }}</p>
+          <div v-if="showExactPayAmount" data-test="exact-pay-amount" class="w-full rounded-xl border border-amber-200 bg-amber-50 p-4 text-center dark:border-amber-500/30 dark:bg-amber-500/10">
+            <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('payment.qr.exactAmountLabel') }}</p>
+            <div class="mt-1 flex items-center justify-center gap-2">
+              <span data-test="exact-pay-amount-value" class="text-3xl font-bold tabular-nums text-gray-900 dark:text-white">{{ displayPaymentAmount }}</span>
+              <button
+                type="button"
+                data-test="copy-pay-amount"
+                class="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-amber-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-amber-500/20 dark:hover:text-gray-200"
+                :title="t('payment.qr.copyAmount')"
+                :aria-label="t('payment.qr.copyAmount')"
+                @click="copyPayAmount"
+              >
+                <Icon name="copy" size="sm" />
+              </button>
+            </div>
+            <p class="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">{{ t('payment.qr.exactAmountNote') }}</p>
+          </div>
           <div :class="['relative rounded-lg border-2 p-4', qrBorderClass]">
-            <canvas ref="qrCanvas" class="mx-auto"></canvas>
+            <!-- Gateway-rendered QR image (e.g. shop01): display as-is, never re-encode -->
+            <img
+              v-if="qrImageUrl"
+              data-test="qr-code-img"
+              :src="qrImageUrl"
+              :alt="t('payment.qr.qrImageAlt')"
+              class="mx-auto h-[220px] w-[220px] object-contain"
+              @error="qrImageFailed = true"
+            />
+            <canvas v-else ref="qrCanvas" class="mx-auto"></canvas>
             <!-- Brand logo overlay -->
-            <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div v-if="!qrImageUrl" class="pointer-events-none absolute inset-0 flex items-center justify-center">
               <span :class="['rounded-full p-2 shadow ring-2 ring-white', qrLogoBgClass]">
                 <img :src="qrLogoIcon" alt="" class="h-5 w-5 brightness-0 invert" />
               </span>
             </div>
           </div>
-          <p v-if="scanHint" class="text-center text-sm text-gray-500 dark:text-gray-400">{{ scanHint }}</p>
-          <button v-if="payUrl" class="btn btn-secondary text-sm" @click="reopenPopup">
-            {{ t('payment.qr.openPayWindow') }}
-          </button>
+          <template v-if="qrImageUrl">
+            <!-- Gateway QR image (shop01): the inline QR is the primary path on desktop and mobile;
+                 the gateway cashier is only a secondary option, opened in a new tab we can close later. -->
+            <p data-test="qr-image-save-hint" class="text-center text-sm leading-6 text-gray-600 dark:text-gray-300">
+              {{ t('payment.qr.qrImageSaveHint') }}
+            </p>
+            <button
+              v-if="payUrl"
+              type="button"
+              data-test="open-cashier-tab"
+              class="btn btn-secondary inline-flex items-center gap-2 text-sm"
+              @click="openCashierTab"
+            >
+              <Icon name="externalLink" size="sm" />
+              {{ t('payment.qr.openCashier') }}
+            </button>
+          </template>
+          <template v-else>
+            <p v-if="scanHint" class="text-center text-sm text-gray-500 dark:text-gray-400">{{ scanHint }}</p>
+            <button v-if="payUrl" class="btn btn-secondary text-sm" @click="reopenPopup">
+              {{ t('payment.qr.openPayWindow') }}
+            </button>
+          </template>
         </div>
       </div>
       <div class="card p-4 text-center">
@@ -206,8 +251,26 @@
         <div class="flex flex-col items-center space-y-4 py-4">
           <div class="h-10 w-10 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
           <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.payInNewWindowHint') }}</p>
-          <button v-if="payUrl" class="btn btn-secondary text-sm" @click="reopenPopup">
-            {{ t('payment.qr.openPayWindow') }}
+          <div v-if="showExactPayAmount" data-test="exact-pay-amount" class="w-full rounded-xl border border-amber-200 bg-amber-50 p-4 text-center dark:border-amber-500/30 dark:bg-amber-500/10">
+            <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('payment.qr.exactAmountLabel') }}</p>
+            <div class="mt-1 flex items-center justify-center gap-2">
+              <span data-test="exact-pay-amount-value" class="text-3xl font-bold tabular-nums text-gray-900 dark:text-white">{{ displayPaymentAmount }}</span>
+              <button
+                type="button"
+                data-test="copy-pay-amount"
+                class="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-amber-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-amber-500/20 dark:hover:text-gray-200"
+                :title="t('payment.qr.copyAmount')"
+                :aria-label="t('payment.qr.copyAmount')"
+                @click="copyPayAmount"
+              >
+                <Icon name="copy" size="sm" />
+              </button>
+            </div>
+            <p class="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">{{ t('payment.qr.exactAmountNote') }}</p>
+          </div>
+          <!-- 网关二维码图片加载失败（shop01）时回退到收银台入口 -->
+          <button v-if="payUrl" data-test="open-cashier" class="btn btn-secondary text-sm" @click="reopenPopup">
+            {{ qrCodeImg ? t('payment.qr.openCashier') : t('payment.qr.openPayWindow') }}
           </button>
         </div>
       </div>
@@ -229,7 +292,9 @@ import { usePaymentStore } from '@/stores/payment'
 import { useAppStore } from '@/stores'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
-import { getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
+import { useClipboard } from '@/composables/useClipboard'
+import { isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
+import { closeCashierWindow, openCashierWindow } from '@/components/payment/cashierWindow'
 import { currencySymbol, formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
 import type { PaymentOrder } from '@/types/payment'
 import Icon from '@/components/icons/Icon.vue'
@@ -255,6 +320,8 @@ const props = defineProps<{
   currency?: string
   outTradeNo?: string
   mobileAlipayDeepLink?: boolean
+  /** Gateway-rendered QR image URL; rendered directly as <img> */
+  qrCodeImg?: string
 }>()
 
 type PaymentOutcome = 'success' | 'cancelled' | 'expired'
@@ -273,6 +340,9 @@ const cancelling = ref(false)
 const paidOrder = ref<PaymentOrder | null>(null)
 const deepLinkState = ref<AlipayDeepLinkState>('idle')
 const deepLinkFallbackVisible = ref(false)
+// 二维码图片加载失败时不展示破图，回退到收银台链接
+const qrImageFailed = ref(false)
+const qrImageUrl = computed(() => (qrImageFailed.value ? '' : String(props.qrCodeImg || '').trim()))
 const paymentCurrency = computed(() => normalizePaymentCurrency(props.currency))
 const creditedAmountSymbol = currencySymbol('USD')
 const localeCode = computed(() => {
@@ -299,7 +369,8 @@ const VERIFY_RETRY_MAX_ATTEMPTS = 6
 const isAlipay = computed(() => isBuiltInAlipayMethod(props.paymentType))
 const isWxpay = computed(() => isBuiltInWxpayMethod(props.paymentType))
 const isMobileAlipayDeepLink = computed(() => props.mobileAlipayDeepLink === true && isAlipay.value && !!qrUrl.value)
-const showQRCode = computed(() => !!qrUrl.value && (!isMobileAlipayDeepLink.value || deepLinkFallbackVisible.value))
+const showQRCode = computed(() =>
+  (!!qrUrl.value || !!qrImageUrl.value) && (!isMobileAlipayDeepLink.value || deepLinkFallbackVisible.value))
 
 const qrBorderClass = computed(() => {
   if (isAlipay.value) return 'border-[#00AEEF] bg-blue-50 dark:border-[#00AEEF]/70 dark:bg-blue-950/20'
@@ -337,7 +408,18 @@ const countdownDisplay = computed(() => {
   return m.toString().padStart(2, '0') + ':' + s.toString().padStart(2, '0')
 })
 
-const displayPaymentAmount = computed(() => formatGatewayAmount(props.payAmount || props.amount || 0))
+const exactPayAmount = computed(() => {
+  const value = props.payAmount || props.amount || 0
+  return Number.isFinite(value) && value > 0 ? value : 0
+})
+// 精确金额匹配的网关（shop01，带网关二维码图片）要求按显示金额分毫不差地付款
+const showExactPayAmount = computed(() => !!String(props.qrCodeImg || '').trim() && exactPayAmount.value > 0)
+const displayPaymentAmount = computed(() => formatGatewayAmount(exactPayAmount.value))
+
+function copyPayAmount() {
+  // 复制纯数字（如 10.37），方便直接粘贴到支付金额输入框
+  void useClipboard().copyToClipboard(exactPayAmount.value.toFixed(2), t('payment.qr.amountCopied'))
+}
 const displayOrderNumber = computed(() => props.outTradeNo || `#${props.orderId}`)
 
 function formatGatewayAmount(value: number, currency?: string | null): string {
@@ -350,22 +432,28 @@ function isSuccessStatus(status: string | null | undefined): boolean {
 
 function reopenPopup() {
   if (props.payUrl) {
-    const win = window.open(props.payUrl, 'paymentPopup', getPaymentPopupFeatures())
-    if (!win || win.closed) {
+    if (!openCashierWindow(props.payUrl, 'popup')) {
       window.location.href = props.payUrl
     }
   }
 }
 
+/** Secondary cashier entry next to an inline gateway QR: new tab only, never same-tab. */
+function openCashierTab() {
+  if (props.payUrl) openCashierWindow(props.payUrl, 'tab')
+}
+
 function setOutcome(next: PaymentOutcome) {
   if (outcome.value === next) return
   outcome.value = next
+  // Terminal state: the gateway cashier has no return URL, so close it ourselves.
+  closeCashierWindow()
   emit('settled', next)
 }
 
 async function renderQR() {
   await nextTick()
-  if (!showQRCode.value || !qrCanvas.value || !qrUrl.value) return
+  if (!showQRCode.value || qrImageUrl.value || !qrCanvas.value || !qrUrl.value) return
   await QRCode.toCanvas(qrCanvas.value, qrUrl.value, {
     width: 220, margin: 2,
     errorCorrectionLevel: 'M',
@@ -506,5 +594,8 @@ onMounted(() => {
   })
   alipayLauncher.launch()
 })
-onUnmounted(() => cleanup())
+onUnmounted(() => {
+  cleanup()
+  closeCashierWindow()
+})
 </script>

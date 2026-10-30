@@ -8041,43 +8041,17 @@
                       :placeholder="t('admin.settings.payment.noLimit')"
                     />
                   </div>
-                  <div>
-                    <label class="input-label">{{
-                      t("admin.settings.payment.balanceRechargeMultiplier")
-                    }}</label>
-                    <input
-                      :value="form.payment_balance_recharge_multiplier || ''"
-                      @input="
-                        form.payment_balance_recharge_multiplier =
-                          parseFloat(
-                            ($event.target as HTMLInputElement).value,
-                          ) || 1
-                      "
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      class="input"
-                    />
-                    <p class="mt-0.5 text-xs text-gray-400">
-                      {{
-                        t(
-                          "admin.settings.payment.balanceRechargeMultiplierHint",
-                        )
-                      }}
-                    </p>
-                    <p
-                      class="mt-1 text-xs font-medium text-primary-600 dark:text-primary-400"
-                    >
-                      {{
-                        t("admin.settings.payment.balanceRechargePreview", {
-                          usd: (
-                            Number(form.payment_balance_recharge_multiplier) ||
-                            1
-                          ).toFixed(2),
-                        })
-                      }}
-                    </p>
-                  </div>
+                  <BalanceRechargeRateSettings
+                    class="col-span-2 sm:col-span-5"
+                    v-model:multiplier="form.payment_balance_recharge_multiplier"
+                    v-model:auto-enabled="form.payment_balance_recharge_rate_auto_enabled"
+                    v-model:markup-mode="form.payment_balance_recharge_rate_markup_mode"
+                    v-model:markup-value="form.payment_balance_recharge_rate_markup_value"
+                    :market="form.payment_balance_recharge_rate_market"
+                    :fetched-at="form.payment_balance_recharge_rate_fetched_at"
+                    :source="form.payment_balance_recharge_rate_source"
+                    @refreshed="applyRechargeRateState"
+                  />
                   <div>
                     <label class="input-label">{{
                       t("admin.settings.payment.subscriptionUsdToCnyRate")
@@ -9012,6 +8986,8 @@ import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
+import BalanceRechargeRateSettings from "@/components/admin/settings/BalanceRechargeRateSettings.vue";
+import type { RechargeRateState } from "@/api/admin/payment";
 import {
   normalizeRechargeBonusMode,
   normalizeRechargeBonusTiers,
@@ -9809,6 +9785,13 @@ const form = reactive<SettingsForm>({
   payment_order_timeout_minutes: 30,
   payment_balance_disabled: false,
   payment_balance_recharge_multiplier: 1,
+  payment_balance_recharge_rate_auto_enabled: false,
+  payment_balance_recharge_rate_markup_mode: "percent",
+  payment_balance_recharge_rate_markup_value: 0,
+  payment_balance_recharge_rate_market: 0,
+  payment_balance_recharge_rate_fetched_at: "",
+  payment_balance_recharge_rate_source: "",
+  payment_balance_recharge_rate_effective: 0,
   payment_subscription_usd_to_cny_rate: 0,
   payment_recharge_fee_rate: 0,
   payment_recharge_bonus_tiers: [],
@@ -11023,6 +11006,17 @@ const claudeSyncedVersionLabel = computed(() => {
   });
 });
 
+// 「立即更新汇率」返回的新状态：同步只读字段；自动模式下倍率已由后端写入。
+function applyRechargeRateState(state: RechargeRateState) {
+  form.payment_balance_recharge_rate_market = state.market_rate;
+  form.payment_balance_recharge_rate_fetched_at = state.fetched_at;
+  form.payment_balance_recharge_rate_source = state.source;
+  form.payment_balance_recharge_rate_effective = state.effective_rate;
+  if (state.auto_enabled && state.balance_recharge_multiplier > 0) {
+    form.payment_balance_recharge_multiplier = state.balance_recharge_multiplier;
+  }
+}
+
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -11697,6 +11691,12 @@ async function saveSettings() {
       payment_balance_disabled: form.payment_balance_disabled,
       payment_balance_recharge_multiplier:
         Number(form.payment_balance_recharge_multiplier) || 1,
+      payment_balance_recharge_rate_auto_enabled:
+        !!form.payment_balance_recharge_rate_auto_enabled,
+      payment_balance_recharge_rate_markup_mode:
+        form.payment_balance_recharge_rate_markup_mode || "percent",
+      payment_balance_recharge_rate_markup_value:
+        Number(form.payment_balance_recharge_rate_markup_value) || 0,
       payment_subscription_usd_to_cny_rate:
         Number(form.payment_subscription_usd_to_cny_rate) || 0,
       payment_recharge_fee_rate: Number(form.payment_recharge_fee_rate) || 0,
@@ -12550,6 +12550,7 @@ const allPaymentTypes = computed(() => [
   { value: "wxpay", label: t("payment.methods.wxpay") },
   { value: "stripe", label: t("payment.methods.stripe") },
   { value: "airwallex", label: t("payment.methods.airwallex") },
+  { value: "shop01", label: t("payment.methods.shop01") },
 ]);
 
 function isPaymentTypeEnabled(type: string): boolean {
@@ -12607,6 +12608,7 @@ const providerKeyOptions = computed(() => [
   { value: "wxpay", label: t("admin.settings.payment.providerWxpay") },
   { value: "stripe", label: t("admin.settings.payment.providerStripe") },
   { value: "airwallex", label: t("admin.settings.payment.providerAirwallex") },
+  { value: "shop01", label: t("admin.settings.payment.providerShop01") },
 ]);
 
 const enabledProviderKeyOptions = computed(() => {
@@ -12690,6 +12692,14 @@ function getProviderVisibleMethods(
     }
   } else if (provider.provider_key === "easypay") {
     supportedTypes.forEach(addMethod);
+  } else if (provider.provider_key === "shop01") {
+    // SHOP01 is an Alipay-only collector (mirrors backend enabledVisibleMethodsForProvider).
+    if (
+      supportedTypes.length === 0 ||
+      supportedTypes.some((type) => normalizeVisibleMethod(type) === "alipay")
+    ) {
+      methods.add("alipay");
+    }
   }
 
   return Array.from(methods);

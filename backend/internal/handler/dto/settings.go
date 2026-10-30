@@ -278,8 +278,16 @@ type SystemSettings struct {
 	PaymentEnabledTypes              []string `json:"payment_enabled_types"`
 	PaymentBalanceDisabled           bool     `json:"payment_balance_disabled"`
 	PaymentBalanceRechargeMultiplier float64  `json:"payment_balance_recharge_multiplier"`
-	PaymentSubscriptionUSDToCNYRate  float64  `json:"payment_subscription_usd_to_cny_rate"`
-	PaymentRechargeFeeRate           float64  `json:"payment_recharge_fee_rate"`
+	// Auto recharge rate (market USD/CNY + markup → multiplier)
+	PaymentBalanceRechargeRateAutoEnabled bool    `json:"payment_balance_recharge_rate_auto_enabled"`
+	PaymentBalanceRechargeRateMarkupMode  string  `json:"payment_balance_recharge_rate_markup_mode"`
+	PaymentBalanceRechargeRateMarkupValue float64 `json:"payment_balance_recharge_rate_markup_value"`
+	PaymentBalanceRechargeRateMarket      float64 `json:"payment_balance_recharge_rate_market"`
+	PaymentBalanceRechargeRateFetchedAt   string  `json:"payment_balance_recharge_rate_fetched_at"`
+	PaymentBalanceRechargeRateSource      string  `json:"payment_balance_recharge_rate_source"`
+	PaymentBalanceRechargeRateEffective   float64 `json:"payment_balance_recharge_rate_effective"`
+	PaymentSubscriptionUSDToCNYRate       float64 `json:"payment_subscription_usd_to_cny_rate"`
+	PaymentRechargeFeeRate                float64 `json:"payment_recharge_fee_rate"`
 	// 充值赠送阶梯与活动文案
 	PaymentRechargeBonusTiers  []RechargeBonusTier `json:"payment_recharge_bonus_tiers"`
 	PaymentRechargeBonusMode   string              `json:"payment_recharge_bonus_mode"`

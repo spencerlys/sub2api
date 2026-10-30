@@ -5,6 +5,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -15,13 +16,15 @@ import (
 type PaymentHandler struct {
 	paymentService *service.PaymentService
 	configService  *service.PaymentConfigService
+	rateService    *service.BalanceRechargeRateService
 }
 
 // NewPaymentHandler creates a new admin PaymentHandler.
-func NewPaymentHandler(paymentService *service.PaymentService, configService *service.PaymentConfigService) *PaymentHandler {
+func NewPaymentHandler(paymentService *service.PaymentService, configService *service.PaymentConfigService, rateService *service.BalanceRechargeRateService) *PaymentHandler {
 	return &PaymentHandler{
 		paymentService: paymentService,
 		configService:  configService,
+		rateService:    rateService,
 	}
 }
 
@@ -502,4 +505,20 @@ func (h *PaymentHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"message": "updated"})
+}
+
+// RefreshRechargeRate fetches the USD/CNY market rate now and, when auto mode
+// is on, applies the derived balance recharge multiplier.
+// POST /api/v1/admin/payment/recharge-rate/refresh
+func (h *PaymentHandler) RefreshRechargeRate(c *gin.Context) {
+	if h.rateService == nil {
+		response.ErrorFrom(c, infraerrors.ServiceUnavailable("RECHARGE_RATE_UNAVAILABLE", "recharge rate service is not configured"))
+		return
+	}
+	state, err := h.rateService.Refresh(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, state)
 }

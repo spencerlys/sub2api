@@ -121,6 +121,136 @@ describe('PaymentProviderDialog callback URLs', () => {
   })
 })
 
+describe('PaymentProviderDialog shop01', () => {
+  type DialogApi = { reset: (key: string) => void; loadProvider: (provider: ProviderInstance) => void }
+  type SavePayload = { provider_key: string; supported_types: string[]; payment_mode: string; config: Record<string, string> }
+
+  function shop01Provider(config: Record<string, string>): ProviderInstance {
+    return providerFactory({
+      provider_key: 'shop01',
+      name: 'Shop01',
+      config,
+      supported_types: ['alipay'],
+    })
+  }
+
+  it('renders merchantKey as a single-line password input, not a textarea', async () => {
+    const wrapper = mountDialog()
+    ;(wrapper.vm as unknown as DialogApi).reset('shop01')
+    await nextTick()
+
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    const passwordInputs = wrapper.findAll('input[type="password"]')
+    expect(passwordInputs).toHaveLength(1)
+    expect(wrapper.text()).toContain('admin.settings.payment.field_merchantKey')
+    expect(wrapper.text()).toContain('/api/v1/payment/webhook/shop01')
+    const apiBaseInput = wrapper
+      .findAll('input[type="text"]')
+      .find(input => (input.element as HTMLInputElement).placeholder === 'http://host:5000')
+    expect(apiBaseInput).toBeDefined()
+  })
+
+  it('emits all four config keys on create', async () => {
+    const wrapper = mountDialog()
+    ;(wrapper.vm as unknown as DialogApi).reset('shop01')
+    await nextTick()
+
+    // Text inputs in DOM order: provider name, merchantNo, apiBase, notify base URL.
+    const [nameInput, merchantNoInput] = wrapper.findAll('input[type="text"]')
+    await nameInput.setValue('Shop01 main')
+    await merchantNoInput.setValue('M10001')
+    await wrapper.find('input[type="password"]').setValue('secret-key')
+    const apiBaseInput = wrapper
+      .findAll('input[type="text"]')
+      .find(input => (input.element as HTMLInputElement).placeholder === 'http://host:5000')!
+    await apiBaseInput.setValue('http://10.0.0.5:5000')
+    const notifyBase = wrapper.findAll('input').find(input => input.classes().includes('!rounded-r-none'))!
+    await notifyBase.setValue('https://cc.example.com/')
+    await wrapper.find('form').trigger('submit.prevent')
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as SavePayload
+    expect(payload.provider_key).toBe('shop01')
+    expect(payload.supported_types).toEqual(['alipay'])
+    expect(payload.payment_mode).toBe('qrcode')
+    expect(payload.config).toEqual({
+      merchantNo: 'M10001',
+      merchantKey: 'secret-key',
+      apiBase: 'http://10.0.0.5:5000',
+      notifyUrl: 'https://cc.example.com/api/v1/payment/webhook/shop01',
+    })
+  })
+
+  it('never echoes a stored/masked merchantKey on edit and omits it when left empty', async () => {
+    const provider = shop01Provider({
+      merchantNo: 'M10001',
+      merchantKey: '********',
+      apiBase: 'http://10.0.0.5:5000',
+      notifyUrl: 'https://cc.example.com/api/v1/payment/webhook/shop01',
+    })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as DialogApi).loadProvider(provider)
+    await nextTick()
+
+    const secretInput = wrapper.find('input[type="password"]')
+    expect((secretInput.element as HTMLInputElement).value).toBe('')
+    expect((secretInput.element as HTMLInputElement).placeholder).toBe('admin.accounts.leaveEmptyToKeep')
+    expect(wrapper.html()).not.toContain('********')
+
+    await wrapper.find('form').trigger('submit.prevent')
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as SavePayload
+    expect(payload.config).not.toHaveProperty('merchantKey')
+    expect(payload.config).toEqual({
+      merchantNo: 'M10001',
+      apiBase: 'http://10.0.0.5:5000',
+      notifyUrl: 'https://cc.example.com/api/v1/payment/webhook/shop01',
+    })
+  })
+
+  it('sends a newly typed merchantKey on edit', async () => {
+    const provider = shop01Provider({
+      merchantNo: 'M10001',
+      apiBase: 'http://10.0.0.5:5000',
+      notifyUrl: 'https://cc.example.com/api/v1/payment/webhook/shop01',
+    })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as DialogApi).loadProvider(provider)
+    await nextTick()
+
+    await wrapper.find('input[type="password"]').setValue('rotated-key')
+    await wrapper.find('form').trigger('submit.prevent')
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as SavePayload
+    expect(payload.config.merchantKey).toBe('rotated-key')
+  })
+
+  it.each(['qrcode', ''])('re-saves shop01 with payment_mode "qrcode" (stored %j), never resetting it to ""', async (stored) => {
+    const provider = { ...shop01Provider({
+      merchantNo: 'M10001',
+      apiBase: 'http://10.0.0.5:5000',
+      notifyUrl: 'https://cc.example.com/api/v1/payment/webhook/shop01',
+    }), payment_mode: stored }
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as DialogApi).loadProvider(provider)
+    await nextTick()
+
+    await wrapper.find('form').trigger('submit.prevent')
+
+    const payload = wrapper.emitted('save')?.[0]?.[0] as SavePayload
+    expect(payload.payment_mode).toBe('qrcode')
+    wrapper.unmount()
+  })
+
+  it('keeps alipay private/public keys as textareas', async () => {
+    const wrapper = mountDialog()
+    ;(wrapper.vm as unknown as DialogApi).reset('alipay')
+    await nextTick()
+
+    expect(wrapper.findAll('textarea')).toHaveLength(2)
+    expect(wrapper.findAll('input[type="password"]')).toHaveLength(0)
+  })
+})
+
 describe('PaymentProviderDialog payment guide', () => {
   it('shows no payment guide for providers without a flow guide', () => {
     const wrapper = mountDialog()

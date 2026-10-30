@@ -983,6 +983,7 @@ var ProviderSet = wire.NewSet(
 	ProvidePaymentConfigService,
 	ProvidePaymentService,
 	ProvidePaymentOrderExpiryService,
+	ProvideBalanceRechargeRateService,
 	ProvideBalanceNotifyService,
 	ProvideChannelMonitorService,
 	ProvideChannelMonitorRunner,
@@ -1023,6 +1024,15 @@ func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, 
 // ProvidePaymentOrderExpiryService creates and starts PaymentOrderExpiryService.
 func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache LeaderLockCache, db *sql.DB) *PaymentOrderExpiryService {
 	svc := NewPaymentOrderExpiryService(paymentSvc, 60*time.Second)
+	svc.SetLeaderLock(lockCache, db)
+	svc.Start()
+	return svc
+}
+
+// ProvideBalanceRechargeRateService creates and starts the USD/CNY recharge-rate
+// job, leader-locked like PaymentOrderExpiryService so only one instance fetches.
+func ProvideBalanceRechargeRateService(settingRepo SettingRepository, lockCache LeaderLockCache, db *sql.DB) *BalanceRechargeRateService {
+	svc := NewBalanceRechargeRateService(settingRepo, NewHTTPRechargeRateFetcher())
 	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
 	return svc

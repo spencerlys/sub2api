@@ -12,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -59,6 +60,16 @@ type PaymentConfig struct {
 	EnabledTypes              []string `json:"enabled_payment_types"`
 	BalanceDisabled           bool     `json:"balance_disabled"`
 	BalanceRechargeMultiplier float64  `json:"balance_recharge_multiplier"`
+	// Auto recharge rate: multiplier derived from the market USD/CNY rate + markup.
+	BalanceRechargeRateAutoEnabled bool    `json:"balance_recharge_rate_auto_enabled"`
+	BalanceRechargeRateMarkupMode  string  `json:"balance_recharge_rate_markup_mode"`
+	BalanceRechargeRateMarkupValue float64 `json:"balance_recharge_rate_markup_value"`
+	// Read-only state written by the rate job: CNY per 1 USD, RFC3339 time, source name.
+	BalanceRechargeRateMarket    float64 `json:"balance_recharge_rate_market"`
+	BalanceRechargeRateFetchedAt string  `json:"balance_recharge_rate_fetched_at"`
+	BalanceRechargeRateSource    string  `json:"balance_recharge_rate_source"`
+	// BalanceRechargeRateEffective is CNY per 1 USD after markup (0 = no market rate yet).
+	BalanceRechargeRateEffective float64 `json:"balance_recharge_rate_effective"`
 	// SubscriptionUSDToCNYRate 为 0 时订阅换算关闭（兼容存量行为）。
 	SubscriptionUSDToCNYRate float64 `json:"subscription_usd_to_cny_rate"`
 	RechargeFeeRate          float64 `json:"recharge_fee_rate"`
@@ -99,8 +110,12 @@ type UpdatePaymentConfigRequest struct {
 	EnabledTypes              []string `json:"enabled_payment_types"`
 	BalanceDisabled           *bool    `json:"balance_disabled"`
 	BalanceRechargeMultiplier *float64 `json:"balance_recharge_multiplier"`
-	SubscriptionUSDToCNYRate  *float64 `json:"subscription_usd_to_cny_rate"`
-	RechargeFeeRate           *float64 `json:"recharge_fee_rate"`
+	// Auto recharge rate settings (market rate state is job-written, not settable).
+	BalanceRechargeRateAutoEnabled *bool    `json:"balance_recharge_rate_auto_enabled"`
+	BalanceRechargeRateMarkupMode  *string  `json:"balance_recharge_rate_markup_mode"`
+	BalanceRechargeRateMarkupValue *float64 `json:"balance_recharge_rate_markup_value"`
+	SubscriptionUSDToCNYRate       *float64 `json:"subscription_usd_to_cny_rate"`
+	RechargeFeeRate                *float64 `json:"recharge_fee_rate"`
 	// RechargeBonusTiers nil 表示不更新；空切片表示清空阶梯。
 	RechargeBonusTiers  *[]RechargeBonusTier `json:"recharge_bonus_tiers"`
 	RechargeBonusMode   *string              `json:"recharge_bonus_mode"`
@@ -239,6 +254,7 @@ func (s *PaymentConfigService) GetPaymentConfig(ctx context.Context) (*PaymentCo
 		SettingPaymentVisibleMethodAlipayEnabled, SettingPaymentVisibleMethodAlipaySource,
 		SettingPaymentVisibleMethodWxpayEnabled, SettingPaymentVisibleMethodWxpaySource,
 	}
+	keys = append(keys, rechargeRateSettingKeys...)
 	vals, err := s.settingRepo.GetMultiple(ctx, keys)
 	if err != nil {
 		return nil, fmt.Errorf("get payment config settings: %w", err)
@@ -279,6 +295,7 @@ func (s *PaymentConfigService) parsePaymentConfig(vals map[string]string) *Payme
 		AlipayMobilePrecreateDeepLink: vals[SettingAlipayMobilePrecreateDeepLink] == "true",
 	}
 	cfg.RechargeBonusMode, _ = NormalizeRechargeBonusMode(vals[SettingRechargeBonusMode])
+	applyRechargeRateToConfig(cfg, vals)
 	cfg.AlipayMobilePrecreateDeepLink = pcEnvBoolOverride(
 		SettingAlipayMobilePrecreateDeepLink,
 		cfg.AlipayMobilePrecreateDeepLink,
@@ -392,7 +409,7 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 		m[SettingBalancePayDisabled] = formatBoolOrEmpty(req.BalanceDisabled)
 	}
 	if req.BalanceRechargeMultiplier != nil {
-		m[SettingBalanceRechargeMult] = formatPositiveFloat(req.BalanceRechargeMultiplier)
+		m[SettingBalanceRechargeMult] = formatBalanceRechargeMultiplier(req.BalanceRechargeMultiplier)
 	}
 	if req.SubscriptionUSDToCNYRate != nil {
 		m[SettingSubscriptionUSDToCNYRate] = formatPositiveFloatExact(req.SubscriptionUSDToCNYRate)
@@ -457,7 +474,21 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 	if req.VisibleMethodWxpayEnabled != nil {
 		m[SettingPaymentVisibleMethodWxpayEnabled] = formatBoolOrEmpty(req.VisibleMethodWxpayEnabled)
 	}
+	// Runs last: with auto mode on it replaces any manual multiplier in m with
+	// the one derived from the stored market rate and the new markup.
+	if err := s.resolveRechargeRateUpdate(ctx, req, m); err != nil {
+		return err
+	}
 	return s.settingRepo.SetMultiple(ctx, m)
+}
+
+// formatBalanceRechargeMultiplier keeps 6 decimals: a CNY→USD multiplier such
+// as 0.133333 must not be truncated to 0.13 (a ~2.5% crediting error).
+func formatBalanceRechargeMultiplier(v *float64) string {
+	if v == nil || *v <= 0 {
+		return ""
+	}
+	return formatRechargeMultiplier(decimal.NewFromFloat(*v))
 }
 
 func formatBoolOrEmpty(v *bool) string {
@@ -564,6 +595,10 @@ func buildVisibleMethodSourceAvailability(instances []*dbent.PaymentProviderInst
 				case payment.TypeWxpay:
 					available[VisibleMethodSourceEasyPayWechat] = true
 				}
+			}
+		case payment.TypeShop01:
+			if inst.SupportedTypes == "" || payment.InstanceSupportsType(inst.SupportedTypes, payment.TypeAlipay) {
+				available[VisibleMethodSourceShop01Alipay] = true
 			}
 		}
 	}

@@ -160,7 +160,7 @@
               <span v-else class="text-red-500"> *</span>
             </label>
             <textarea
-              v-if="field.sensitive && field.key.toLowerCase().includes('key') && field.key !== 'pkey'"
+              v-if="field.control === 'textarea'"
               v-model="config[field.key]"
               rows="3"
               class="input font-mono text-xs"
@@ -171,7 +171,7 @@
               spellcheck="false"
               :placeholder="editing ? t('admin.accounts.leaveEmptyToKeep') : ''"
             />
-            <div v-else-if="field.sensitive" class="relative">
+            <div v-else-if="field.control === 'password'" class="relative">
               <input
                 :type="visibleFields[field.key] ? 'text' : 'password'"
                 v-model="config[field.key]"
@@ -193,7 +193,7 @@
               </button>
             </div>
             <Select
-              v-else-if="field.options?.length"
+              v-else-if="field.control === 'select' && field.options?.length"
               v-model="config[field.key]"
               :options="field.options"
               :searchable="field.options.length > 5"
@@ -203,7 +203,7 @@
               type="text"
               v-model="config[field.key]"
               class="input"
-              :placeholder="field.defaultValue || ''"
+              :placeholder="field.placeholder || field.defaultValue || ''"
             />
             <p v-if="field.hintKey" class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
               {{ t(field.hintKey) }}
@@ -325,15 +325,24 @@ import {
   STRIPE_SDK_API_VERSION,
   getAvailableTypes,
   extractBaseUrl,
+  isSensitiveConfigField,
+  resolveFieldInputType,
   parseEasyPayCustomMethods,
   serializeEasyPayCustomMethods,
 } from './providerConfig'
+
+/** Providers with no payment_mode selector that still run in a fixed mode.
+ * shop01 is QR-only; without this, re-saving it would reset the stored
+ * "qrcode" to "". */
+const FIXED_PAYMENT_MODES: Record<string, string> = {
+  shop01: PAYMENT_MODE_QRCODE,
+}
 
 /** Default payment_mode per provider key — "" means "no preference, use
  * provider's built-in default behavior". */
 function defaultPaymentMode(providerKey: string): string {
   if (providerKey === 'easypay') return PAYMENT_MODE_QRCODE
-  return ''
+  return FIXED_PAYMENT_MODES[providerKey] ?? ''
 }
 
 /** Provider keys whose admin UI exposes a payment_mode selector.
@@ -473,6 +482,7 @@ const resolvedFields = computed(() => {
   return fields.map(f => ({
     ...f,
     label: f.label || t(`admin.settings.payment.field_${f.key}`),
+    control: resolveFieldInputType(f),
   }))
 })
 
@@ -718,7 +728,7 @@ function handleSave() {
     name: form.name,
     supported_types: form.supported_types,
     enabled: form.enabled,
-    payment_mode: supportsPaymentMode.value ? form.payment_mode : '',
+    payment_mode: supportsPaymentMode.value ? form.payment_mode : (FIXED_PAYMENT_MODES[form.provider_key] ?? ''),
     refund_enabled: form.refund_enabled,
     allow_user_refund: form.refund_enabled ? form.allow_user_refund : false,
     config: filteredConfig,
@@ -813,10 +823,13 @@ function loadProvider(provider: ProviderInstance) {
   clearConfig()
   // Pre-fill config from API response. Backend omits sensitive fields entirely,
   // so those inputs stay blank — submitting blank preserves the stored secret.
+  // Defense in depth: never echo a sensitive value (or a masked placeholder)
+  // into the form even if the API ever returns one.
   if (provider.config) {
     for (const [k, v] of Object.entries(provider.config)) {
       // Skip notifyUrl/returnUrl — they are derived from callbackBaseUrl
       if (k === 'notifyUrl' || k === 'returnUrl') continue
+      if (isSensitiveConfigField(provider.provider_key, k)) continue
       if (k === 'customMethods' && provider.provider_key === 'easypay') {
         easyPayCustomMethods.push(...parseEasyPayCustomMethods(v))
         continue

@@ -19,6 +19,7 @@
             :amount="paymentState.amount"
             :pay-amount="paymentState.payAmount"
             :qr-code="paymentState.qrCode"
+            :qr-code-img="paymentState.qrCodeImg"
             :expires-at="paymentState.expiresAt"
             :payment-type="paymentState.paymentType"
             :pay-url="paymentState.payUrl"
@@ -103,7 +104,7 @@
                   <span :class="bonusQuote.percent > 0 ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-900 dark:text-white'">${{ creditedAmount.toFixed(2) }}</span>
                 </div>
                 <p v-if="balanceRechargeMultiplier !== 1" class="border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
-                  {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: balanceRechargeMultiplier.toFixed(2) }) }}
+                  {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: formatRechargeMultiplier(balanceRechargeMultiplier) }) }}
                 </p>
               </div>
             </div>
@@ -299,7 +300,9 @@ import { formatRechargeBonusNumber, normalizeRechargeBonusMode, normalizeRecharg
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
-import { METHOD_ORDER, getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
+import { formatRechargeMultiplier } from '@/utils/rechargeRate'
+import { METHOD_ORDER, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
+import { openCashierWindow } from '@/components/payment/cashierWindow'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
   buildCreateOrderPayload,
@@ -858,8 +861,8 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
 
     const result = await paymentStore.createOrder(payload) as CreateOrderResult & { resume_token?: string }
     const openWindow = (url: string) => {
-      const win = window.open(url, 'paymentPopup', getPaymentPopupFeatures())
-      if (!win || win.closed) {
+      // Keep the handle so the status panel can close the cashier once the order settles.
+      if (!openCashierWindow(url, 'popup')) {
         window.location.href = url
       }
     }
@@ -1095,7 +1098,7 @@ async function attemptMobileQrFallback(err: unknown, context: MobileQrFallbackCo
       stripeRouteUrl,
     })
 
-    if (decision.kind !== 'qr_waiting' || !decision.paymentState.qrCode) {
+    if (decision.kind !== 'qr_waiting' || (!decision.paymentState.qrCode && !decision.paymentState.qrCodeImg)) {
       return false
     }
 

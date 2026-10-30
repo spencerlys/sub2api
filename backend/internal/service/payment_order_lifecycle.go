@@ -166,6 +166,11 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 		return ""
 	}
 	if resp.Status == payment.ProviderStatusPaid {
+		if strings.EqualFold(prov.ProviderKey(), payment.TypeShop01) {
+			// SHOP01 query responses are unsigned and travel over plain HTTP, so they
+			// may only stop a cancel; crediting waits for the signed notify.
+			return s.shop01HandleUnsignedPaidQuery(ctx, o, queryRef, resp.Amount, prov.ProviderKey())
+		}
 		if !isValidProviderAmount(resp.Amount) {
 			s.writeAuditLog(ctx, o.ID, "PAYMENT_INVALID_AMOUNT", prov.ProviderKey(), map[string]any{
 				"expected": o.PayAmount,
@@ -248,7 +253,7 @@ func paymentOrderQueryReference(order *dbent.PaymentOrder, prov payment.Provider
 	}
 
 	switch payment.GetBasePaymentType(providerKey) {
-	case payment.TypeAlipay, payment.TypeEasyPay, payment.TypeWxpay:
+	case payment.TypeAlipay, payment.TypeEasyPay, payment.TypeWxpay, payment.TypeShop01:
 		return strings.TrimSpace(order.OutTradeNo)
 	default:
 		if tradeNo := strings.TrimSpace(order.PaymentTradeNo); tradeNo != "" {
@@ -303,7 +308,7 @@ func (s *PaymentService) VerifyOrderByOutTradeNo(ctx context.Context, outTradeNo
 	return o, nil
 }
 
-// ReconcilePendingPaymentOrders actively checks recent pending Alipay and WeChat
+// ReconcilePendingPaymentOrders actively checks recent pending Alipay, WeChat and SHOP01
 // orders so missed provider notifications do not wait until order expiry to fulfill.
 func (s *PaymentService) ReconcilePendingPaymentOrders(ctx context.Context) (int, error) {
 	now := time.Now()
@@ -320,6 +325,9 @@ func (s *PaymentService) ReconcilePendingPaymentOrders(ctx context.Context) (int
 				paymentorder.PaymentTypeHasPrefix(payment.TypeAlipay+"_"),
 				paymentorder.ProviderKeyEQ(payment.TypeAlipay),
 				paymentorder.ProviderKeyHasPrefix(payment.TypeAlipay+"_"),
+				// SHOP01 (exact-amount collector) retries notify for ~13h,
+				// but a missed callback must not wait for that.
+				paymentorder.ProviderKeyEQ(payment.TypeShop01),
 			),
 		).
 		Order(dbent.Asc(paymentorder.FieldCreatedAt)).

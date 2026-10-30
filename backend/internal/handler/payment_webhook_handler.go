@@ -67,6 +67,12 @@ func (h *PaymentWebhookHandler) AirwallexWebhook(c *gin.Context) {
 	h.handleNotify(c, payment.TypeAirwallex)
 }
 
+// Shop01Notify handles SHOP01 (Alipay personal-QR collector) notifications.
+// GET|POST /api/v1/payment/webhook/shop01
+func (h *PaymentWebhookHandler) Shop01Notify(c *gin.Context) {
+	h.handleNotify(c, payment.TypeShop01)
+}
+
 // handleNotify is the shared logic for all provider webhook handlers.
 func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string) {
 	var rawBody string
@@ -90,7 +96,9 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 	providers, err := h.paymentService.GetWebhookProviders(c.Request.Context(), providerKey, outTradeNo)
 	if err != nil {
 		slog.Warn("[Payment Webhook] provider not found", "provider", providerKey, "outTradeNo", outTradeNo, "error", err)
-		if providerKey == payment.TypeWxpay {
+		// SHOP01 retries unless it gets "success": never ack a notify we could
+		// not verify, or a real payment for a known order would be lost.
+		if providerKey == payment.TypeWxpay || providerKey == payment.TypeShop01 {
 			c.String(http.StatusBadRequest, "verify failed")
 			return
 		}
@@ -156,7 +164,7 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 // This allows looking up the correct provider instance before verification.
 func extractOutTradeNo(rawBody, providerKey string) string {
 	switch providerKey {
-	case payment.TypeEasyPay, payment.TypeAlipay:
+	case payment.TypeEasyPay, payment.TypeAlipay, payment.TypeShop01:
 		values, err := url.ParseQuery(rawBody)
 		if err == nil {
 			return values.Get("out_trade_no")
@@ -221,6 +229,9 @@ func writeSuccessResponse(c *gin.Context, providerKey string) {
 		c.JSON(http.StatusOK, wxpaySuccessResponse{Code: wxpaySuccessCode, Message: wxpaySuccessMessage})
 	case payment.TypeStripe, payment.TypeAirwallex:
 		c.String(http.StatusOK, "")
+	case payment.TypeShop01:
+		// SHOP01 retries (10x over ~13h) unless the body is exactly "success".
+		c.String(http.StatusOK, "success")
 	default:
 		c.String(http.StatusOK, "success")
 	}

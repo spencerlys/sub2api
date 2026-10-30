@@ -10,6 +10,8 @@ describe('admin settings payment visible method helpers', () => {
     expect(normalizePaymentVisibleMethodSource('alipay', 'official')).toBe('official_alipay')
     expect(normalizePaymentVisibleMethodSource('alipay', 'alipay_direct')).toBe('official_alipay')
     expect(normalizePaymentVisibleMethodSource('alipay', 'easypay')).toBe('easypay_alipay')
+    expect(normalizePaymentVisibleMethodSource('alipay', 'shop01_alipay')).toBe('shop01_alipay')
+    expect(normalizePaymentVisibleMethodSource('alipay', 'SHOP01')).toBe('shop01_alipay')
 
     expect(normalizePaymentVisibleMethodSource('wxpay', 'official')).toBe('official_wxpay')
     expect(normalizePaymentVisibleMethodSource('wxpay', 'wechat')).toBe('official_wxpay')
@@ -21,6 +23,8 @@ describe('admin settings payment visible method helpers', () => {
     expect(normalizePaymentVisibleMethodSource('wxpay', 'official_alipay')).toBe('')
     expect(normalizePaymentVisibleMethodSource('alipay', 'unknown')).toBe('')
     expect(normalizePaymentVisibleMethodSource('wxpay', null)).toBe('')
+    expect(normalizePaymentVisibleMethodSource('wxpay', 'shop01_alipay')).toBe('')
+    expect(normalizePaymentVisibleMethodSource('wxpay', 'shop01')).toBe('')
   })
 
   it('exposes method-scoped source options instead of arbitrary strings', () => {
@@ -39,6 +43,11 @@ describe('admin settings payment visible method helpers', () => {
         value: 'easypay_alipay',
         labelZh: '易支付支付宝',
         labelEn: 'EasyPay Alipay',
+      },
+      {
+        value: 'shop01_alipay',
+        labelZh: 'SHOP01 支付宝',
+        labelEn: 'SHOP01 Alipay',
       },
     ])
 

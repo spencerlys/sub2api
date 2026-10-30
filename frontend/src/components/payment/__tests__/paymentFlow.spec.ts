@@ -74,6 +74,49 @@ describe('getVisibleMethods', () => {
 })
 
 describe('decidePaymentLaunch', () => {
+  it('uses QR waiting for a desktop gateway that only returns a QR image URL (shop01)', () => {
+    const decision = decidePaymentLaunch(createOrderResult({
+      amount: 10.37,
+      pay_amount: 10.37,
+      bonus_amount: 0.37,
+      qr_code: '',
+      qr_code_img: 'https://shop01.example.com/qr/101.png',
+      pay_url: 'https://shop01.example.com/cashier/101',
+    }), {
+      visibleMethod: 'alipay',
+      orderType: 'balance',
+      isMobile: false,
+    })
+
+    expect(decision.kind).toBe('qr_waiting')
+    expect(decision.paymentState.qrCode).toBe('')
+    expect(decision.paymentState.qrCodeImg).toBe('https://shop01.example.com/qr/101.png')
+    expect(decision.paymentState.payAmount).toBe(10.37)
+
+    const restored = readPaymentRecoverySnapshot(JSON.stringify(decision.recovery), { now: Date.UTC(2026, 0, 1) })
+    expect(restored?.qrCodeImg).toBe('https://shop01.example.com/qr/101.png')
+  })
+
+  it.each(['', 'qrcode', 'redirect', 'popup'])(
+    'keeps a gateway QR image (shop01) inline on mobile instead of redirecting (payment_mode=%s)',
+    (paymentMode) => {
+      const decision = decidePaymentLaunch(createOrderResult({
+        qr_code: '',
+        qr_code_img: 'data:image/png;base64,iVBORw0KGgo=',
+        pay_url: 'http://shop01.example.com/p/101',
+        payment_mode: paymentMode,
+      }), {
+        visibleMethod: 'alipay',
+        orderType: 'balance',
+        isMobile: true,
+      })
+
+      expect(decision.kind).toBe('qr_waiting')
+      expect(decision.paymentState.qrCodeImg).toBe('data:image/png;base64,iVBORw0KGgo=')
+      expect(decision.paymentState.payUrl).toBe('http://shop01.example.com/p/101')
+    },
+  )
+
   it('uses Stripe popup waiting flow for desktop Alipay client secret', () => {
     const decision = decidePaymentLaunch(createOrderResult({
       client_secret: 'cs_test',

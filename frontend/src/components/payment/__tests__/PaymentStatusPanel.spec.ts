@@ -6,6 +6,11 @@ const cancelOrder = vi.hoisted(() => vi.fn())
 const verifyOrder = vi.hoisted(() => vi.fn())
 const showError = vi.hoisted(() => vi.fn())
 const toCanvas = vi.hoisted(() => vi.fn())
+const copyToClipboard = vi.hoisted(() => vi.fn())
+
+vi.mock('@/composables/useClipboard', () => ({
+  useClipboard: () => ({ copyToClipboard }),
+}))
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -67,6 +72,7 @@ describe('PaymentStatusPanel', () => {
     verifyOrder.mockReset()
     showError.mockReset()
     toCanvas.mockReset().mockResolvedValue(undefined)
+    copyToClipboard.mockReset().mockResolvedValue(true)
   })
 
   afterEach(() => {
@@ -339,5 +345,187 @@ describe('PaymentStatusPanel', () => {
     wrapper.unmount()
     Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
     if (originalHidden) Object.defineProperty(document, 'hidden', originalHidden)
+  })
+
+  it('renders qr_code_img directly as an image instead of generating a QR', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        payAmount: 10.37,
+        qrCode: '',
+        qrCodeImg: 'https://shop01.example.com/qr/42.png',
+        payUrl: 'https://shop01.example.com/cashier/42',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+      },
+      global: { stubs: { Icon: true } },
+    })
+    await flushPromises()
+
+    const img = wrapper.get('[data-test="qr-code-img"]')
+    expect(img.attributes('src')).toBe('https://shop01.example.com/qr/42.png')
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    expect(toCanvas).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  const SHOP01_DATA_QR = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg=='
+
+  function mountShop01Panel(extra: Record<string, unknown> = {}) {
+    return mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        payAmount: 10.37,
+        qrCode: '',
+        qrCodeImg: SHOP01_DATA_QR,
+        payUrl: 'http://shop01.example.com/p/42',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+        ...extra,
+      },
+      global: { stubs: { Icon: true } },
+    })
+  }
+
+  it('shows the exact pay amount with a copy button above a gateway QR image', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    const wrapper = mountShop01Panel({ currency: 'CNY' })
+    await flushPromises()
+
+    const block = wrapper.get('[data-test="exact-pay-amount"]')
+    expect(block.get('[data-test="exact-pay-amount-value"]').text()).toContain('10.37')
+    expect(block.text()).toContain('payment.qr.exactAmountNote')
+    const html = wrapper.html()
+    expect(html.indexOf('data-test="exact-pay-amount"')).toBeLessThan(html.indexOf('data-test="qr-code-img"'))
+
+    await wrapper.get('[data-test="copy-pay-amount"]').trigger('click')
+    expect(copyToClipboard).toHaveBeenCalledWith('10.37', 'payment.qr.amountCopied')
+    wrapper.unmount()
+  })
+
+  it('does not show the exact-amount block for providers without a gateway QR image', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        payAmount: 10.37,
+        qrCode: 'https://pay.example.com/qr/42',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+      },
+      global: { stubs: { Icon: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="exact-pay-amount"]').exists()).toBe(false)
+    expect(wrapper.find('canvas').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('renders a data: URI QR image inline with the exact amount, save hint and a new-tab cashier link', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    const fakeWin = { closed: false, close: vi.fn() }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWin as unknown as Window)
+    const wrapper = mountShop01Panel()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="qr-code-img"]').attributes('src')).toBe(SHOP01_DATA_QR)
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('payment.qr.payInNewWindowHint')
+    expect(wrapper.get('[data-test="exact-pay-amount-value"]').text()).toContain('10.37')
+    expect(wrapper.get('[data-test="qr-image-save-hint"]').text()).toBe('payment.qr.qrImageSaveHint')
+
+    const cashier = wrapper.get('[data-test="open-cashier-tab"]')
+    expect(cashier.text()).toContain('payment.qr.openCashier')
+    await cashier.trigger('click')
+    expect(openSpy).toHaveBeenCalledWith('http://shop01.example.com/p/42', '_blank')
+    // still on the inline QR; never navigated away
+    expect(wrapper.find('[data-test="qr-code-img"]').exists()).toBe(true)
+    openSpy.mockRestore()
+    wrapper.unmount()
+  })
+
+  it.each(['PAID', 'COMPLETED', 'FAILED', 'CANCELLED'])('closes the opened cashier window when the order becomes %s', async (status) => {
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    const fakeWin = { closed: false, close: vi.fn() }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWin as unknown as Window)
+    const wrapper = mountShop01Panel()
+    await flushPromises()
+    await wrapper.get('[data-test="open-cashier-tab"]').trigger('click')
+    expect(fakeWin.close).not.toHaveBeenCalled()
+
+    pollOrderStatus.mockResolvedValue(orderFactory(status))
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushPromises()
+
+    expect(fakeWin.close).toHaveBeenCalledTimes(1)
+    expect(wrapper.emitted('settled')).toHaveLength(1)
+    if (status === 'PAID' || status === 'COMPLETED') {
+      expect(wrapper.emitted('success')).toHaveLength(1)
+    }
+    wrapper.unmount()
+    expect(fakeWin.close).toHaveBeenCalledTimes(1)
+    openSpy.mockRestore()
+  })
+
+  it('closes a popup-mode cashier on unmount and tolerates close() throwing', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    const fakeWin = { closed: false, close: vi.fn(() => { throw new Error('cross-origin') }) }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWin as unknown as Window)
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        payAmount: 10.05,
+        qrCode: '',
+        payUrl: 'https://pay.example.com/cashier/42',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+      },
+      global: { stubs: { Icon: true } },
+    })
+    await flushPromises()
+    const reopen = wrapper.get('[data-test="open-cashier"]')
+    expect(reopen.text()).toContain('payment.qr.openPayWindow')
+    await reopen.trigger('click')
+    expect(openSpy).toHaveBeenCalledWith('https://pay.example.com/cashier/42', 'paymentPopup', expect.any(String))
+
+    expect(() => wrapper.unmount()).not.toThrow()
+    expect(fakeWin.close).toHaveBeenCalledTimes(1)
+    openSpy.mockRestore()
+  })
+
+  it('falls back to a cashier button instead of a broken QR when the QR image fails to load', async () => {
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({ closed: false } as Window)
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        payAmount: 10.37,
+        qrCode: '',
+        qrCodeImg: 'https://shop01.example.com/qr/broken.png',
+        payUrl: 'https://shop01.example.com/cashier/42',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'alipay',
+        orderType: 'balance',
+      },
+      global: { stubs: { Icon: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="qr-code-img"]').trigger('error')
+    expect(wrapper.find('[data-test="qr-code-img"]').exists()).toBe(false)
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    const cashier = wrapper.get('[data-test="open-cashier"]')
+    expect(cashier.text()).toContain('payment.qr.openCashier')
+    expect(wrapper.get('[data-test="exact-pay-amount-value"]').text()).toContain('10.37')
+    await cashier.trigger('click')
+    expect(openSpy).toHaveBeenCalledWith('https://shop01.example.com/cashier/42', 'paymentPopup', expect.any(String))
+    openSpy.mockRestore()
+    wrapper.unmount()
   })
 })
