@@ -180,6 +180,7 @@ func (s *AuthService) RegisterOAuthEmailAccount(
 		_ = s.RollbackOAuthEmailAccountCreation(ctx, user.ID, "")
 		return nil, nil, fmt.Errorf("generate token pair: %w", err)
 	}
+	s.recordSignupBonus(ctx, user)
 	return tokenPair, user, nil
 }
 
@@ -266,6 +267,7 @@ func (s *AuthService) RegisterVerifiedOAuthEmailAccount(
 		_ = s.RollbackOAuthEmailAccountCreation(ctx, user.ID, "")
 		return nil, nil, fmt.Errorf("generate token pair: %w", err)
 	}
+	s.recordSignupBonus(ctx, user)
 	return tokenPair, user, nil
 }
 

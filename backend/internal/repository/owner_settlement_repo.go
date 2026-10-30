@@ -13,7 +13,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/lib/pq"
 )
 
 // ownerSettlementRepository 所有者结算与财务汇总。聚合查询只返回数值与所有者身份，
@@ -87,29 +86,51 @@ ORDER BY u.id`, nullableID(ownerUserID))
 	return out, rows.Err()
 }
 
-// AggregateOwnerUserUsage 按 (所有者, 请求用户) 聚合：期间 [start,end) 内的请求数、官方价、用户计费、账户成本，
-// 以及历史累计账户成本。用量归属按账户当前所有者计算。
-// 索引：idx_usage_logs_account_created_at (account_id, created_at)。
-func (r *ownerSettlementRepository) AggregateOwnerUserUsage(ctx context.Context, start, end time.Time, ownerUserID *int64) (out []service.OwnerUserUsage, err error) {
+// splitEarningsSQL 单次请求的所有者收益：已拆分且 actual_cost > 0 时为 账户成本 × paid_cost / actual_cost，否则为 0。
+// 依赖别名 ul（usage_logs）与 s（usage_cost_splits，LEFT JOIN）。
+const splitEarningsSQL = `CASE WHEN s.usage_log_id IS NOT NULL AND s.actual_cost > 0
+  THEN (` + accountCostSQL + `) * s.paid_cost / s.actual_cost ELSE 0 END`
+
+// AggregateOwnerSettlement 按所有者聚合 [start,end) 内的请求数、官方价、应收（actual_cost）、实付/赠送拆分、账户成本、
+// 收益、赠送资助的账户成本与待结算，以及历史累计收益。用量归属按账户当前所有者计算；请求用户不出现在结果中。
+// 索引：idx_usage_logs_account_created_at (account_id, created_at)；拆分按主键关联。
+func (r *ownerSettlementRepository) AggregateOwnerSettlement(ctx context.Context, start, end time.Time, ownerUserID *int64) (out []service.OwnerSettlementUsage, err error) {
 	rows, err := r.sql.QueryContext(ctx, `
-SELECT a.owner_user_id, ul.user_id,
-  COUNT(*) FILTER (WHERE ul.created_at >= $1 AND ul.created_at < $2),
-  COALESCE(SUM(ul.total_cost) FILTER (WHERE ul.created_at >= $1 AND ul.created_at < $2), 0)::double precision,
-  COALESCE(SUM(ul.actual_cost) FILTER (WHERE ul.created_at >= $1 AND ul.created_at < $2), 0)::double precision,
-  COALESCE(SUM(`+accountCostSQL+`) FILTER (WHERE ul.created_at >= $1 AND ul.created_at < $2), 0)::double precision,
-  COALESCE(SUM(`+accountCostSQL+`), 0)::double precision
-FROM usage_logs ul
-JOIN accounts a ON a.id = ul.account_id
-WHERE a.owner_user_id IS NOT NULL
-  AND ($3::bigint IS NULL OR a.owner_user_id = $3)
-GROUP BY a.owner_user_id, ul.user_id`, start, end, nullableID(ownerUserID))
+WITH u AS (
+  SELECT a.owner_user_id,
+    (ul.created_at >= $1 AND ul.created_at < $2) AS in_range,
+    (s.usage_log_id IS NULL) AS pending,
+    ul.total_cost, ul.actual_cost, s.paid_cost, s.gift_cost,
+    (`+accountCostSQL+`) AS account_cost,
+    (`+splitEarningsSQL+`) AS earnings
+  FROM usage_logs ul
+  JOIN accounts a ON a.id = ul.account_id
+  LEFT JOIN usage_cost_splits s ON s.usage_log_id = ul.id
+  WHERE a.owner_user_id IS NOT NULL
+    AND ($3::bigint IS NULL OR a.owner_user_id = $3)
+)
+SELECT owner_user_id,
+  COUNT(*) FILTER (WHERE in_range),
+  COALESCE(SUM(total_cost) FILTER (WHERE in_range), 0)::double precision,
+  COALESCE(SUM(actual_cost) FILTER (WHERE in_range), 0)::double precision,
+  COALESCE(SUM(paid_cost) FILTER (WHERE in_range), 0)::double precision,
+  COALESCE(SUM(gift_cost) FILTER (WHERE in_range), 0)::double precision,
+  COALESCE(SUM(account_cost) FILTER (WHERE in_range), 0)::double precision,
+  COALESCE(SUM(earnings) FILTER (WHERE in_range), 0)::double precision,
+  COALESCE(SUM(account_cost - earnings) FILTER (WHERE in_range AND NOT pending), 0)::double precision,
+  COUNT(*) FILTER (WHERE in_range AND pending),
+  COALESCE(SUM(account_cost) FILTER (WHERE in_range AND pending), 0)::double precision,
+  COALESCE(SUM(earnings), 0)::double precision
+FROM u
+GROUP BY owner_user_id`, start, end, nullableID(ownerUserID))
 	if err != nil {
 		return nil, err
 	}
 	defer closeRows(rows, &err)
 	for rows.Next() {
-		var u service.OwnerUserUsage
-		if err := rows.Scan(&u.OwnerUserID, &u.UserID, &u.Requests, &u.OfficialCost, &u.UserBilled, &u.AccountCost, &u.AccountCostAllTime); err != nil {
+		var u service.OwnerSettlementUsage
+		if err := rows.Scan(&u.OwnerUserID, &u.Requests, &u.OfficialCost, &u.UserBilled, &u.PaidCost, &u.GiftCost,
+			&u.AccountCost, &u.Earnings, &u.GiftAccountCost, &u.PendingRequests, &u.PendingAccountCost, &u.EarningsAllTime); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -117,28 +138,50 @@ GROUP BY a.owner_user_id, ul.user_id`, start, end, nullableID(ownerUserID))
 	return out, rows.Err()
 }
 
-// ListUserCredits 指定用户截至当前的正向入账，按 (用户, 种类, 来源) 汇总。
-func (r *ownerSettlementRepository) ListUserCredits(ctx context.Context, userIDs []int64) (out []service.UserCreditRow, err error) {
-	if len(userIDs) == 0 {
-		return nil, nil
-	}
-	credits := fmt.Sprintf(creditRowsSQL, "AND rc.used_by = ANY($1)", "AND user_id = ANY($1)", "AND user_id = ANY($1)", 2)
+// CountActiveOwnerAccounts 各所有者当前 status=active 且可调度、未删除的账户数。
+func (r *ownerSettlementRepository) CountActiveOwnerAccounts(ctx context.Context, ownerUserID *int64) (out map[int64]int64, err error) {
 	rows, err := r.sql.QueryContext(ctx, `
-WITH credits AS (`+credits+`)
-SELECT user_id, kind, source, SUM(amount), SUM(bonus)
-FROM credits
-WHERE amount > 0
-GROUP BY user_id, kind, source`, pq.Array(userIDs), payment.DefaultPaymentCurrency)
+SELECT owner_user_id, COUNT(*)
+FROM accounts
+WHERE owner_user_id IS NOT NULL AND deleted_at IS NULL AND status = 'active' AND schedulable
+  AND ($1::bigint IS NULL OR owner_user_id = $1)
+GROUP BY owner_user_id`, nullableID(ownerUserID))
 	if err != nil {
 		return nil, err
 	}
 	defer closeRows(rows, &err)
+	out = map[int64]int64{}
 	for rows.Next() {
-		var c service.UserCreditRow
-		if err := rows.Scan(&c.UserID, &c.Credit.Kind, &c.Credit.Source, &c.Credit.Amount, &c.Credit.Bonus); err != nil {
+		var id, n int64
+		if err := rows.Scan(&id, &n); err != nil {
 			return nil, err
 		}
-		out = append(out, c)
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
+// AggregateFinanceConsumption 期间 [start,end) 内全部用量的应收与精确拆分；未拆分的计为待结算。
+func (r *ownerSettlementRepository) AggregateFinanceConsumption(ctx context.Context, start, end time.Time) (out *service.FinanceConsumption, err error) {
+	rows, err := r.sql.QueryContext(ctx, `
+SELECT COUNT(*),
+  COALESCE(SUM(ul.actual_cost), 0)::double precision,
+  COALESCE(SUM(s.paid_cost), 0)::double precision,
+  COALESCE(SUM(s.gift_cost), 0)::double precision,
+  COUNT(*) FILTER (WHERE s.usage_log_id IS NULL),
+  COALESCE(SUM(ul.actual_cost) FILTER (WHERE s.usage_log_id IS NULL), 0)::double precision
+FROM usage_logs ul
+LEFT JOIN usage_cost_splits s ON s.usage_log_id = ul.id
+WHERE ul.created_at >= $1 AND ul.created_at < $2`, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer closeRows(rows, &err)
+	out = &service.FinanceConsumption{}
+	if rows.Next() {
+		if err := rows.Scan(&out.Requests, &out.UserBilled, &out.PaidCost, &out.GiftCost, &out.PendingRequests, &out.PendingUserBilled); err != nil {
+			return nil, err
+		}
 	}
 	return out, rows.Err()
 }

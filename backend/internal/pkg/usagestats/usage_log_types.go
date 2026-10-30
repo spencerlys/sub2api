@@ -293,20 +293,28 @@ type UsageLogFilters struct {
 
 // UsageStats represents usage statistics
 type UsageStats struct {
-	TotalRequests            int64          `json:"total_requests"`
-	TotalInputTokens         int64          `json:"total_input_tokens"`
-	TotalOutputTokens        int64          `json:"total_output_tokens"`
-	TotalCacheTokens         int64          `json:"total_cache_tokens"`
-	TotalCacheCreationTokens int64          `json:"total_cache_creation_tokens"`
-	TotalCacheReadTokens     int64          `json:"total_cache_read_tokens"`
-	TotalTokens              int64          `json:"total_tokens"`
-	TotalCost                float64        `json:"total_cost"`
-	TotalActualCost          float64        `json:"total_actual_cost"`
-	TotalAccountCost         *float64       `json:"total_account_cost,omitempty"`
-	AverageDurationMs        float64        `json:"average_duration_ms"`
-	Endpoints                []EndpointStat `json:"endpoints,omitempty"`
-	UpstreamEndpoints        []EndpointStat `json:"upstream_endpoints,omitempty"`
-	EndpointPaths            []EndpointStat `json:"endpoint_paths,omitempty"`
+	TotalRequests            int64    `json:"total_requests"`
+	TotalInputTokens         int64    `json:"total_input_tokens"`
+	TotalOutputTokens        int64    `json:"total_output_tokens"`
+	TotalCacheTokens         int64    `json:"total_cache_tokens"`
+	TotalCacheCreationTokens int64    `json:"total_cache_creation_tokens"`
+	TotalCacheReadTokens     int64    `json:"total_cache_read_tokens"`
+	TotalTokens              int64    `json:"total_tokens"`
+	TotalCost                float64  `json:"total_cost"`
+	TotalActualCost          float64  `json:"total_actual_cost"`
+	TotalAccountCost         *float64 `json:"total_account_cost,omitempty"`
+	// 以下来自成本账本（usage_cost_splits），只在管理端用量统计中填充：
+	// 应收拆分为实付/赠送；TotalEarnings 为应付所有者（只计有所有者的账户），
+	// TotalGiftAccountCost 为赠送资助的账户成本（仅参考）；PendingRequests 为尚未拆分的请求数。
+	TotalPaidCost        *float64       `json:"total_paid_cost,omitempty"`
+	TotalGiftCost        *float64       `json:"total_gift_cost,omitempty"`
+	TotalEarnings        *float64       `json:"total_earnings,omitempty"`
+	TotalGiftAccountCost *float64       `json:"total_gift_account_cost,omitempty"`
+	PendingRequests      *int64         `json:"pending_requests,omitempty"`
+	AverageDurationMs    float64        `json:"average_duration_ms"`
+	Endpoints            []EndpointStat `json:"endpoints,omitempty"`
+	UpstreamEndpoints    []EndpointStat `json:"upstream_endpoints,omitempty"`
+	EndpointPaths        []EndpointStat `json:"endpoint_paths,omitempty"`
 }
 
 // PlatformUsage 表示某用户/某 API key 在单个"有效平台"维度的用量明细。

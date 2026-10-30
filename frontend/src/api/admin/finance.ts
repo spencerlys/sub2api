@@ -1,33 +1,79 @@
 /**
  * Finance / owner settlement API.
  *
- * Admins: per-owner settlement (official price vs. what users were billed vs.
- * what the owner earned and was paid), owner payout records and a money-in
- * summary by source. Owners: only their own settlement via `/me`, which never
- * carries user identities or billing multipliers.
+ * Admins: per-owner settlement (official price vs. what users were billed —
+ * split exactly into the paid and gift-funded portions — vs. what the owner is
+ * owed and was paid), owner payout records, a money-in summary by source and
+ * the settlement ledger status. Owners: only their own settlement via `/me`,
+ * which never carries user identities, billed amounts or billing multipliers.
  *
- * Dates are YYYY-MM-DD in the browser timezone; `end` is inclusive.
+ * Periods are named presets resolved server-side in the site timezone; only a
+ * custom range sends dates (YYYY-MM-DD, `end` inclusive).
  */
 
 import { apiClient } from '../client'
-import { getBrowserTimeZone } from '@/utils/format'
 import type { PaginatedResponse } from '@/types'
 
-export interface FinanceDateRange {
-  start: string
-  end: string
+export type FinanceRangeKind =
+  | 'today'
+  | 'yesterday'
+  | 'this_month'
+  | 'last_month'
+  | 'last_7d'
+  | 'last_30d'
+  | 'all'
+  | 'custom'
+
+export interface FinanceRange {
+  range: FinanceRangeKind
+  /** custom only: YYYY-MM-DD. */
+  start?: string
+  /** custom only: YYYY-MM-DD, inclusive. */
+  end?: string
+}
+
+/** The window the server resolved for a request (echoed in every response). */
+export interface FinanceWindow {
+  range: string
+  /** Site timezone the day boundaries were computed in, e.g. "Asia/Shanghai". */
+  timezone: string
+  /** RFC3339; the Unix epoch for `all`. */
+  start_time: string
+  end_time: string
+}
+
+/** Background ledger job that splits each request into paid / gift-funded parts. */
+export interface LedgerStatus {
+  processed_until: string | null
+  last_run_at: string | null
+  /** Seconds behind real time; -1 = never ran. */
+  lag_seconds: number
+  last_error: string
+  rebuild_pending: boolean
+  last_rebuild_at: string | null
 }
 
 export interface OwnerSettlementTotals {
+  /** Owner accounts that are active and schedulable right now. */
+  active_accounts: number
   requests: number
   /** USD at official list price. */
   official_cost: number
-  /** USD actually charged to users. */
+  /** USD receivable from users (actual_cost). */
   user_billed: number
-  /** USD, official price × account multiplier (before the owner's paid share). */
+  /** Part of user_billed funded by paid (cash) balance. */
+  paid_cost: number
+  /** Part of user_billed funded by gift balance. */
+  gift_cost: number
+  /** USD, official price × account multiplier. */
   account_cost: number
-  /** USD owner payout earned in the period. */
+  /** USD owner payable in the period = Σ account_cost × paid_cost / user_billed. */
   earnings: number
+  /** Account cost funded by gift balance. Reference only, never payable. */
+  gift_account_cost: number
+  /** Requests the ledger has not split yet; excluded from earnings. */
+  pending_requests: number
+  pending_account_cost: number
   earnings_all_time: number
   paid_total: number
   /** earnings_all_time − paid_total. */
@@ -40,22 +86,21 @@ export interface OwnerSettlementRow extends OwnerSettlementTotals {
   username: string
 }
 
-export interface OwnerSettlementsResponse {
-  start_time: string
-  end_time: string
+export interface OwnerSettlementsResponse extends FinanceWindow {
+  ledger: LedgerStatus
   items: OwnerSettlementRow[]
   totals: OwnerSettlementTotals
 }
 
-export interface MyOwnerSettlement {
-  start_time: string
-  end_time: string
+export interface MyOwnerSettlement extends FinanceWindow {
   requests: number
   official_cost: number
   earnings: number
+  pending_requests: number
   earnings_all_time: number
   paid_total: number
   unpaid: number
+  ledger: LedgerStatus
 }
 
 export interface OwnerPayout {
@@ -77,7 +122,8 @@ export interface CreateOwnerPayoutRequest {
   notes?: string
 }
 
-export interface ListOwnerPayoutsParams extends FinanceDateRange {
+export interface ListOwnerPayoutsParams {
+  range: FinanceRange
   ownerUserId?: number
   page?: number
   pageSize?: number
@@ -88,9 +134,17 @@ export interface FinancePayAmount {
   amount: number
 }
 
-export interface FinanceSummary {
-  start_time: string
-  end_time: string
+/** All usage in the period, split by the exact ledger. */
+export interface FinanceConsumption {
+  requests: number
+  user_billed: number
+  paid_cost: number
+  gift_cost: number
+  pending_requests: number
+  pending_user_billed: number
+}
+
+export interface FinanceSummary extends FinanceWindow {
   online: {
     orders: number
     pay_amounts: FinancePayAmount[]
@@ -118,14 +172,25 @@ export interface FinanceSummary {
     count: number
     usd: number
   }
+  consumption: FinanceConsumption
+  ledger: LedgerStatus
 }
 
-function rangeParams(range: FinanceDateRange): Record<string, string | number> {
-  return { start: range.start, end: range.end, timezone: getBrowserTimeZone() }
+export interface RebuildLedgerResponse {
+  rebuild_pending: boolean
+}
+
+function rangeParams(range: FinanceRange): Record<string, string | number> {
+  const params: Record<string, string | number> = { range: range.range }
+  if (range.range === 'custom') {
+    params.start = range.start ?? ''
+    params.end = range.end ?? ''
+  }
+  return params
 }
 
 export async function getOwnerSettlements(
-  range: FinanceDateRange,
+  range: FinanceRange,
   ownerUserId?: number
 ): Promise<OwnerSettlementsResponse> {
   const params = rangeParams(range)
@@ -134,7 +199,7 @@ export async function getOwnerSettlements(
   return data
 }
 
-export async function getMyOwnerSettlement(range: FinanceDateRange): Promise<MyOwnerSettlement> {
+export async function getMyOwnerSettlement(range: FinanceRange): Promise<MyOwnerSettlement> {
   const { data } = await apiClient.get<MyOwnerSettlement>('/admin/owner-settlements/me', {
     params: rangeParams(range)
   })
@@ -142,7 +207,7 @@ export async function getMyOwnerSettlement(range: FinanceDateRange): Promise<MyO
 }
 
 export async function listOwnerPayouts(params: ListOwnerPayoutsParams): Promise<PaginatedResponse<OwnerPayout>> {
-  const query = { ...rangeParams(params), page: params.page ?? 1, page_size: params.pageSize ?? 20 }
+  const query = { ...rangeParams(params.range), page: params.page ?? 1, page_size: params.pageSize ?? 20 }
   if (params.ownerUserId !== undefined) Object.assign(query, { owner_user_id: params.ownerUserId })
   const { data } = await apiClient.get<PaginatedResponse<OwnerPayout>>('/admin/owner-payouts', { params: query })
   return data
@@ -157,8 +222,14 @@ export async function deleteOwnerPayout(id: number): Promise<void> {
   await apiClient.delete(`/admin/owner-payouts/${id}`)
 }
 
-export async function getFinanceSummary(range: FinanceDateRange): Promise<FinanceSummary> {
+export async function getFinanceSummary(range: FinanceRange): Promise<FinanceSummary> {
   const { data } = await apiClient.get<FinanceSummary>('/admin/finance/summary', { params: rangeParams(range) })
+  return data
+}
+
+/** Schedule a full ledger rebuild; the background job picks it up within about a minute. */
+export async function rebuildLedger(): Promise<RebuildLedgerResponse> {
+  const { data } = await apiClient.post<RebuildLedgerResponse>('/admin/finance/rebuild-ledger')
   return data
 }
 
@@ -168,7 +239,8 @@ export const financeAPI = {
   listOwnerPayouts,
   createOwnerPayout,
   deleteOwnerPayout,
-  getFinanceSummary
+  getFinanceSummary,
+  rebuildLedger
 }
 
 export default financeAPI

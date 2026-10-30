@@ -21,11 +21,13 @@ import (
 )
 
 type settlementRepoStub struct {
-	ownerFilter *int64
-	usageStart  time.Time
-	created     *service.OwnerPayout
-	records     map[int64]*service.RedeemCode
-	notes       map[int64]string
+	ownerFilter  *int64
+	usageStart   time.Time
+	usageEnd     time.Time
+	payoutFilter *service.OwnerPayoutFilter
+	created      *service.OwnerPayout
+	records      map[int64]*service.RedeemCode
+	notes        map[int64]string
 }
 
 func (s *settlementRepoStub) ListSettlementOwners(_ context.Context, id *int64) ([]service.OwnerIdentity, error) {
@@ -42,13 +44,14 @@ func (s *settlementRepoStub) ListSettlementOwners(_ context.Context, id *int64) 
 	return nil, nil
 }
 
-func (s *settlementRepoStub) AggregateOwnerUserUsage(_ context.Context, start, _ time.Time, id *int64) ([]service.OwnerUserUsage, error) {
-	s.usageStart = start
-	rows := []service.OwnerUserUsage{
-		{OwnerUserID: 7, UserID: 100, Requests: 3, OfficialCost: 10, UserBilled: 15, AccountCost: 4, AccountCostAllTime: 8},
-		{OwnerUserID: 8, UserID: 100, Requests: 1, OfficialCost: 2, UserBilled: 3, AccountCost: 1, AccountCostAllTime: 1},
+func (s *settlementRepoStub) AggregateOwnerSettlement(_ context.Context, start, end time.Time, id *int64) ([]service.OwnerSettlementUsage, error) {
+	s.usageStart, s.usageEnd = start, end
+	rows := []service.OwnerSettlementUsage{
+		{OwnerUserID: 7, Requests: 3, OfficialCost: 10, UserBilled: 15, PaidCost: 9, GiftCost: 5, AccountCost: 4, Earnings: 2.4,
+			GiftAccountCost: 1.2, PendingRequests: 1, PendingAccountCost: 0.4, EarningsAllTime: 8},
+		{OwnerUserID: 8, Requests: 1, OfficialCost: 2, UserBilled: 3, PaidCost: 3, AccountCost: 1, Earnings: 1, EarningsAllTime: 1},
 	}
-	var out []service.OwnerUserUsage
+	var out []service.OwnerSettlementUsage
 	for _, r := range rows {
 		if id == nil || *id == r.OwnerUserID {
 			out = append(out, r)
@@ -57,15 +60,26 @@ func (s *settlementRepoStub) AggregateOwnerUserUsage(_ context.Context, start, _
 	return out, nil
 }
 
-func (s *settlementRepoStub) ListUserCredits(context.Context, []int64) ([]service.UserCreditRow, error) {
-	return []service.UserCreditRow{{UserID: 100, Credit: service.BalanceCredit{Kind: service.CreditKindAdmin, Amount: 10, Source: "offline"}}}, nil
+func (s *settlementRepoStub) CountActiveOwnerAccounts(_ context.Context, id *int64) (map[int64]int64, error) {
+	out := map[int64]int64{}
+	for owner, n := range map[int64]int64{7: 2, 8: 1} {
+		if id == nil || *id == owner {
+			out[owner] = n
+		}
+	}
+	return out, nil
+}
+
+func (s *settlementRepoStub) AggregateFinanceConsumption(context.Context, time.Time, time.Time) (*service.FinanceConsumption, error) {
+	return &service.FinanceConsumption{Requests: 4, UserBilled: 18, PaidCost: 12, GiftCost: 5, PendingRequests: 1, PendingUserBilled: 1}, nil
 }
 
 func (s *settlementRepoStub) SumOwnerPayouts(context.Context, *int64) (map[int64]float64, error) {
 	return map[int64]float64{7: 1}, nil
 }
 
-func (s *settlementRepoStub) ListOwnerPayouts(context.Context, service.OwnerPayoutFilter, pagination.PaginationParams) ([]service.OwnerPayout, int64, error) {
+func (s *settlementRepoStub) ListOwnerPayouts(_ context.Context, f service.OwnerPayoutFilter, _ pagination.PaginationParams) ([]service.OwnerPayout, int64, error) {
+	s.payoutFilter = &f
 	return []service.OwnerPayout{{ID: 1, OwnerUserID: 7, Amount: 1}}, 1, nil
 }
 
@@ -94,9 +108,27 @@ func (s *settlementRepoStub) UpdateBalanceRecordNotes(_ context.Context, id int6
 	return nil
 }
 
+// ledgerCursorStub 只实现进度相关方法；处理用户的方法在处理器测试中不会被调用。
+type ledgerCursorStub struct {
+	service.UsageCostLedgerRepository
+	cursor service.CostLedgerCursor
+}
+
+func (s *ledgerCursorStub) GetLedgerCursor(context.Context) (*service.CostLedgerCursor, error) {
+	c := s.cursor
+	return &c, nil
+}
+
+func (s *ledgerCursorStub) RequestLedgerRebuild(_ context.Context, at time.Time) error {
+	s.cursor.RebuildRequestedAt = &at
+	return nil
+}
+
 func newSettlementRouter(ownerID int64, repo *settlementRepoStub) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	h := NewOwnerSettlementHandler(service.NewOwnerSettlementService(repo))
+	processed := time.Now().Add(-3 * time.Minute)
+	ledger := service.NewUsageCostLedgerService(&ledgerCursorStub{cursor: service.CostLedgerCursor{ProcessedUntil: &processed, LastError: "boom"}}, 0)
+	h := NewOwnerSettlementHandler(service.NewOwnerSettlementService(repo, ledger), ledger)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		if ownerID > 0 {
@@ -111,6 +143,7 @@ func newSettlementRouter(ownerID int64, repo *settlementRepoStub) *gin.Engine {
 	r.POST("/api/v1/admin/owner-payouts", h.CreatePayout)
 	r.DELETE("/api/v1/admin/owner-payouts/:id", h.DeletePayout)
 	r.GET("/api/v1/admin/finance/summary", h.FinanceSummary)
+	r.POST("/api/v1/admin/finance/rebuild-ledger", h.RebuildLedger)
 	r.PUT("/api/v1/admin/users/:id/balance-history/:recordId/source", h.UpdateBalanceRecordSource)
 	return r
 }
@@ -127,20 +160,24 @@ func TestOwnerSettlementHandler_OwnerOnlyGetsOwnSummary(t *testing.T) {
 	repo := &settlementRepoStub{}
 	r := newSettlementRouter(7, repo)
 
-	w := settlementCall(r, http.MethodGet, "/api/v1/admin/owner-settlements/me?start=2026-09-01&end=2026-09-30", "")
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.NotNil(t, repo.ownerFilter)
-	require.Equal(t, int64(7), *repo.ownerFilter)
-	var body struct {
-		Data map[string]any `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.InDelta(t, 10, body.Data["official_cost"], 1e-9)
-	require.InDelta(t, 4, body.Data["earnings"], 1e-9)
-	require.InDelta(t, 7, body.Data["unpaid"], 1e-9)
-	raw := w.Body.String()
-	for _, forbidden := range []string{"user_billed", "account_cost", "multiplier", "paid_share", "email", "username", "user_id", "owner-b"} {
-		require.NotContains(t, raw, forbidden)
+	for _, q := range []string{"?range=today", "?range=all", "?range=custom&start=2026-09-01&end=2026-09-30"} {
+		w := settlementCall(r, http.MethodGet, "/api/v1/admin/owner-settlements/me"+q, "")
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		require.NotNil(t, repo.ownerFilter)
+		require.Equal(t, int64(7), *repo.ownerFilter)
+		var body struct {
+			Data map[string]any `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		require.InDelta(t, 10, body.Data["official_cost"], 1e-9)
+		require.InDelta(t, 2.4, body.Data["earnings"], 1e-9)
+		require.InDelta(t, 1, body.Data["pending_requests"], 1e-9)
+		require.InDelta(t, 7, body.Data["unpaid"], 1e-9)
+		require.Contains(t, body.Data, "ledger")
+		raw := w.Body.String()
+		for _, forbidden := range []string{"user_billed", "account_cost", "paid_cost", "gift_cost", "multiplier", "paid_share", "email", "username", "user_id", "owner-b", "boom"} {
+			require.NotContains(t, raw, forbidden)
+		}
 	}
 
 	// 所有者调用管理员接口一律 403（路由目录之外的第二道防线）。
@@ -148,6 +185,7 @@ func TestOwnerSettlementHandler_OwnerOnlyGetsOwnSummary(t *testing.T) {
 		{http.MethodGet, "/api/v1/admin/owner-settlements", ""},
 		{http.MethodGet, "/api/v1/admin/owner-settlements?owner_user_id=7", ""},
 		{http.MethodGet, "/api/v1/admin/finance/summary", ""},
+		{http.MethodPost, "/api/v1/admin/finance/rebuild-ledger", ""},
 		{http.MethodGet, "/api/v1/admin/owner-payouts", ""},
 		{http.MethodPost, "/api/v1/admin/owner-payouts", `{"owner_user_id":7,"amount":1}`},
 		{http.MethodDelete, "/api/v1/admin/owner-payouts/1", ""},
@@ -167,28 +205,70 @@ func TestOwnerSettlementHandler_OwnerOnlyGetsOwnSummary(t *testing.T) {
 func TestOwnerSettlementHandler_AdminReport(t *testing.T) {
 	repo := &settlementRepoStub{}
 	r := newSettlementRouter(0, repo)
+	loc := service.ReportLocation()
 
-	w := settlementCall(r, http.MethodGet, "/api/v1/admin/owner-settlements?start=2026-09-01&end=2026-09-30&timezone=UTC", "")
+	// timezone 参数被忽略：日界一律按站点时区。
+	w := settlementCall(r, http.MethodGet, "/api/v1/admin/owner-settlements?start=2026-09-01&end=2026-09-30&timezone=America/New_York", "")
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Nil(t, repo.ownerFilter)
-	require.Equal(t, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), repo.usageStart.UTC())
+	require.True(t, time.Date(2026, 9, 1, 0, 0, 0, 0, loc).Equal(repo.usageStart), repo.usageStart.String())
+	require.True(t, time.Date(2026, 10, 1, 0, 0, 0, 0, loc).Equal(repo.usageEnd), repo.usageEnd.String())
 	var body struct {
 		Data service.OwnerSettlementReport `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, service.ReportRangeCustom, body.Data.Range)
+	require.Equal(t, loc.String(), body.Data.Timezone)
 	require.Len(t, body.Data.Items, 2)
-	require.Equal(t, "owner-a@example.com", body.Data.Items[0].Email)
+	a := body.Data.Items[0]
+	require.Equal(t, "owner-a@example.com", a.Email)
+	require.Equal(t, int64(2), a.ActiveAccounts)
+	require.InDelta(t, 9, a.PaidCost, 1e-9)
+	require.InDelta(t, 5, a.GiftCost, 1e-9)
+	require.InDelta(t, 2.4, a.Earnings, 1e-9)
+	require.InDelta(t, 1.2, a.GiftAccountCost, 1e-9)
+	require.InDelta(t, 7, a.Unpaid, 1e-9, "unpaid = all-time earnings − payouts; gift-funded cost never payable")
 	require.Equal(t, int64(4), body.Data.Totals.Requests)
+	require.Equal(t, int64(3), body.Data.Totals.ActiveAccounts)
+	require.NotNil(t, body.Data.Ledger)
+	require.Equal(t, "boom", body.Data.Ledger.LastError)
+	require.GreaterOrEqual(t, body.Data.Ledger.LagSeconds, int64(180))
 
-	w = settlementCall(r, http.MethodGet, "/api/v1/admin/owner-settlements?owner_user_id=8", "")
+	w = settlementCall(r, http.MethodGet, "/api/v1/admin/owner-settlements?owner_user_id=8&range=all", "")
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Equal(t, int64(8), *repo.ownerFilter)
+	require.True(t, repo.usageStart.Equal(time.Unix(0, 0)))
 
-	for _, q := range []string{"?owner_user_id=x", "?owner_user_id=-1", "?start=2026/09/01", "?start=2025-01-01&end=2026-06-01", "?start=2026-09-02&end=2026-09-01"} {
+	for _, rk := range []string{"today", "yesterday", "this_month", "last_month", "last_7d", "last_30d", "all"} {
+		require.Equal(t, http.StatusOK, settlementCall(r, http.MethodGet, "/api/v1/admin/owner-settlements?range="+rk, "").Code, rk)
+	}
+	// 自定义区间不再限制 366 天。
+	require.Equal(t, http.StatusOK, settlementCall(r, http.MethodGet, "/api/v1/admin/owner-settlements?start=2020-01-01&end=2026-06-01", "").Code)
+	for _, q := range []string{"?owner_user_id=x", "?owner_user_id=-1", "?start=2026/09/01", "?start=2026-09-02&end=2026-09-01", "?range=forever"} {
 		require.Equal(t, http.StatusBadRequest, settlementCall(r, http.MethodGet, "/api/v1/admin/owner-settlements"+q, "").Code, q)
 	}
-	require.Equal(t, http.StatusOK, settlementCall(r, http.MethodGet, "/api/v1/admin/finance/summary?start=2026-09-01&end=2026-09-30", "").Code)
+
+	w = settlementCall(r, http.MethodGet, "/api/v1/admin/finance/summary?range=last_7d", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var summary struct {
+		Data service.FinanceSummary `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &summary))
+	require.Equal(t, service.ReportRangeLast7d, summary.Data.Range)
+	require.InDelta(t, 12, summary.Data.Consumption.PaidCost, 1e-9)
+	require.Equal(t, int64(1), summary.Data.Consumption.PendingRequests)
+	require.NotNil(t, summary.Data.Ledger)
 	require.Equal(t, http.StatusBadRequest, settlementCall(r, http.MethodGet, "/api/v1/admin/finance/summary?end=bad", "").Code)
+}
+
+func TestOwnerSettlementHandler_RebuildLedger(t *testing.T) {
+	r := newSettlementRouter(0, &settlementRepoStub{})
+	w := settlementCall(r, http.MethodPost, "/api/v1/admin/finance/rebuild-ledger", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"rebuild_pending":true`)
+
+	owner := newSettlementRouter(7, &settlementRepoStub{})
+	require.Equal(t, http.StatusForbidden, settlementCall(owner, http.MethodPost, "/api/v1/admin/finance/rebuild-ledger", "").Code)
 }
 
 func TestOwnerSettlementHandler_Payouts(t *testing.T) {
@@ -206,6 +286,20 @@ func TestOwnerSettlementHandler_Payouts(t *testing.T) {
 	require.Equal(t, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), repo.created.PaidAt.UTC())
 
 	require.Equal(t, http.StatusOK, settlementCall(r, http.MethodGet, "/api/v1/admin/owner-payouts?owner_user_id=7&start=2026-09-01&end=2026-10-31", "").Code)
+	require.NotNil(t, repo.payoutFilter.Start)
+	require.True(t, time.Date(2026, 9, 1, 0, 0, 0, 0, service.ReportLocation()).Equal(*repo.payoutFilter.Start))
+
+	// 预设区间同样按 range 筛选；all 与不传均不筛选。
+	require.Equal(t, http.StatusOK, settlementCall(r, http.MethodGet, "/api/v1/admin/owner-payouts?range=today", "").Code)
+	require.NotNil(t, repo.payoutFilter.Start)
+	require.NotNil(t, repo.payoutFilter.End)
+	require.Equal(t, 24*time.Hour, repo.payoutFilter.End.Sub(*repo.payoutFilter.Start))
+	require.Equal(t, http.StatusOK, settlementCall(r, http.MethodGet, "/api/v1/admin/owner-payouts?range=all", "").Code)
+	require.Nil(t, repo.payoutFilter.Start)
+	require.Nil(t, repo.payoutFilter.End)
+	require.Equal(t, http.StatusOK, settlementCall(r, http.MethodGet, "/api/v1/admin/owner-payouts", "").Code)
+	require.Nil(t, repo.payoutFilter.Start)
+	require.Equal(t, http.StatusBadRequest, settlementCall(r, http.MethodGet, "/api/v1/admin/owner-payouts?range=bogus", "").Code)
 	require.Equal(t, http.StatusBadRequest, settlementCall(r, http.MethodGet, "/api/v1/admin/owner-payouts?owner_user_id=abc", "").Code)
 	require.Equal(t, http.StatusOK, settlementCall(r, http.MethodDelete, "/api/v1/admin/owner-payouts/3", "").Code)
 	require.Equal(t, http.StatusBadRequest, settlementCall(r, http.MethodDelete, "/api/v1/admin/owner-payouts/x", "").Code)

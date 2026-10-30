@@ -81,7 +81,8 @@ SELECT agg.account_id, agg.total, agg.rate_limit, agg.overloaded, agg.auth, agg.
 FROM agg
 JOIN last ON last.account_id = agg.account_id`
 
-// accountHealthUsageQuery 成功请求聚合；TTFT 只取流式请求。
+// accountHealthUsageQuery 成功请求聚合；TTFT 只取流式请求。官方价、账户成本与按精确账本（usage_cost_splits）的应付：
+// 拆分以 LATERAL 子查询按主键关联，只暴露金额列，不引入用户身份。
 // 索引：idx_usage_logs_account_created_at (account_id, created_at)。
 const accountHealthUsageQuery = `
 SELECT account_id,
@@ -93,8 +94,17 @@ SELECT account_id,
   percentile_cont(0.50) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE stream AND first_token_ms IS NOT NULL) AS ttft_p50,
   percentile_cont(0.95) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE stream AND first_token_ms IS NOT NULL) AS ttft_p95,
   percentile_cont(0.50) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE duration_ms IS NOT NULL) AS duration_p50,
-  MAX(created_at) AS last_success_at
+  MAX(created_at) AS last_success_at,
+  COALESCE(SUM(total_cost), 0) AS official_cost,
+  COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) AS account_cost,
+  COALESCE(SUM(CASE WHEN sp.split_actual > 0
+    THEN COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) * sp.paid_cost / sp.split_actual
+    ELSE 0 END), 0) AS earnings,
+  COUNT(*) FILTER (WHERE sp.paid_cost IS NULL) AS pending_requests
 FROM usage_logs
+LEFT JOIN LATERAL (
+  SELECT s.paid_cost, s.actual_cost AS split_actual FROM usage_cost_splits s WHERE s.usage_log_id = usage_logs.id
+) sp ON TRUE
 WHERE account_id = ANY($1)
   AND created_at >= $2 AND created_at < $3
 GROUP BY account_id`
@@ -157,7 +167,8 @@ func (r *accountHealthRepository) AggregateAccountHealthUsage(ctx context.Contex
 			ttftP50, ttftP95, durP50 sql.NullFloat64
 			lastSuccess              sql.NullTime
 		)
-		if err := rows.Scan(&id, &u.RequestsOK, &u.TokensIn, &u.TokensOut, &u.TokensCache, &u.Cost, &ttftP50, &ttftP95, &durP50, &lastSuccess); err != nil {
+		if err := rows.Scan(&id, &u.RequestsOK, &u.TokensIn, &u.TokensOut, &u.TokensCache, &u.Cost, &ttftP50, &ttftP95, &durP50, &lastSuccess,
+			&u.OfficialCost, &u.AccountCost, &u.Earnings, &u.PendingRequests); err != nil {
 			return nil, err
 		}
 		u.TTFTP50Ms, u.TTFTP95Ms, u.DurationP50Ms = floatToIntPtr(ttftP50), floatToIntPtr(ttftP95), floatToIntPtr(durP50)
@@ -207,6 +218,31 @@ func (r *accountHealthRepository) AggregateAccountHealthErrors(ctx context.Conte
 			e.LastErrorStatus = &code
 		}
 		out[id] = &e
+	}
+	return out, rows.Err()
+}
+
+// ListAccountOwnerLabels 所有者邮箱与用户名（含已软删除的用户，便于识别历史账户归属）。
+func (r *accountHealthRepository) ListAccountOwnerLabels(ctx context.Context, ownerIDs []int64) (out map[int64]service.OwnerIdentity, err error) {
+	out = make(map[int64]service.OwnerIdentity, len(ownerIDs))
+	if len(ownerIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.sql.QueryContext(ctx, `SELECT id, email, COALESCE(username, '') FROM users WHERE id = ANY($1)`, pq.Array(ownerIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	for rows.Next() {
+		var o service.OwnerIdentity
+		if err := rows.Scan(&o.UserID, &o.Email, &o.Username); err != nil {
+			return nil, err
+		}
+		out[o.UserID] = o
 	}
 	return out, rows.Err()
 }

@@ -58,7 +58,7 @@ func usageStatsCacheKey(filters usagestats.UsageLogFilters) string {
 func (h *UsageHandler) getStatsCached(ctx context.Context, filters usagestats.UsageLogFilters) (*usagestats.UsageStats, bool, error) {
 	key := usageStatsCacheKey(filters)
 	entry, hit, err := usageStatsCache.GetOrLoad(key, func() (any, error) {
-		return h.usageService.GetStatsWithFilters(ctx, filters)
+		return h.loadStats(ctx, filters)
 	})
 	if err != nil {
 		return nil, hit, err

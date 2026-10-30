@@ -46,6 +46,7 @@ func TestOwnerPolicyAllowsOnlyOwnerCatalogue(t *testing.T) {
 		{"POST", "/api/v1/admin/usage/cleanup-tasks"}, {"GET", "/api/v1/admin/payment/orders"},
 		{"POST", "/api/v1/admin/subscriptions/assign"}, {"GET", "/api/v1/admin/system/version"},
 		{"GET", "/api/v1/admin/owner-settlements"}, {"GET", "/api/v1/admin/finance/summary"},
+		{"POST", "/api/v1/admin/finance/rebuild-ledger"},
 		{"GET", "/api/v1/admin/owner-payouts"}, {"POST", "/api/v1/admin/owner-payouts"},
 		{"DELETE", "/api/v1/admin/owner-payouts/:id"}, {"PUT", "/api/v1/admin/users/:id/balance-history/:recordId/source"},
 		{"GET", ""},

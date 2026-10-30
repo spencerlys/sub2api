@@ -261,6 +261,7 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 		}
 	}
 	s.postAuthUserBootstrap(ctx, user, "email", true)
+	s.recordSignupBonus(ctx, user)
 	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 	// snapshot user × platform quota（fail-open）
 	_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
@@ -645,6 +646,7 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 			} else {
 				user = newUser
 				s.postAuthUserBootstrap(ctx, user, signupSource, false)
+				s.recordSignupBonus(ctx, user)
 				s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 				// snapshot user × platform quota（fail-open）
 				_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
@@ -810,6 +812,7 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					user = newUser
 					created = true
 					s.postAuthUserBootstrap(ctx, user, signupSource, false)
+					s.recordSignupBonus(ctx, user)
 					s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 					// snapshot user × platform quota（fail-open）
 					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
@@ -831,6 +834,7 @@ func (s *AuthService) loginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					user = newUser
 					created = true
 					s.postAuthUserBootstrap(ctx, user, signupSource, false)
+					s.recordSignupBonus(ctx, user)
 					s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 					// snapshot user × platform quota（fail-open）
 					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
@@ -1982,4 +1986,19 @@ func (s *AuthService) snapshotPlatformQuotaDefaults(ctx context.Context, userID 
 		return nil // fail-open：返回 nil，让调用方继续
 	}
 	return nil
+}
+
+// recordSignupBonus 为注册时发放的赠送余额（default_balance 或来源默认值）写一条 [src:gift] 余额调整记录，
+// 余额本身已在建号时发放，这里只留痕供成本账本识别。只记录正数；失败只记日志，不影响注册。
+func (s *AuthService) recordSignupBonus(ctx context.Context, user *User) {
+	if s == nil || s.redeemRepo == nil || user == nil || user.ID <= 0 || user.Balance <= 0 {
+		return
+	}
+	rec, err := newGiftBalanceRecord(user.ID, user.Balance, SignupBonusNotes)
+	if err == nil {
+		err = s.redeemRepo.Create(ctx, rec)
+	}
+	if err != nil {
+		logger.LegacyPrintf("service.auth", "[Auth] Failed to record signup bonus: user_id=%d err=%v", user.ID, err)
+	}
 }

@@ -1,44 +1,65 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  FINANCE_MAX_RANGE_DAYS,
-  isValidFinanceRange,
-  lastMonthRange,
-  presetRange,
-  thisMonthRange,
+  FINANCE_RANGE_PRESETS,
+  LEDGER_LAG_WARN_SECONDS,
+  defaultFinanceRange,
+  isValidCustomRange,
+  ledgerLag,
+  ledgerIsLagging,
   toLocalDateString
 } from '../financePeriod'
+
+const ledger = (lag: number) => ({
+  processed_until: null,
+  last_run_at: null,
+  lag_seconds: lag,
+  last_error: '',
+  rebuild_pending: false,
+  last_rebuild_at: null
+})
 
 describe('financePeriod', () => {
   it('formats local dates as YYYY-MM-DD', () => {
     expect(toLocalDateString(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05')
   })
 
-  it('this month runs from the 1st to today (inclusive)', () => {
-    expect(thisMonthRange(new Date(2026, 9, 30, 10))).toEqual({ start: '2026-10-01', end: '2026-10-30' })
-    expect(thisMonthRange(new Date(2026, 9, 1, 0, 1))).toEqual({ start: '2026-10-01', end: '2026-10-01' })
+  it('offers every server preset plus custom, defaulting to this month', () => {
+    expect(FINANCE_RANGE_PRESETS).toEqual([
+      'today',
+      'yesterday',
+      'this_month',
+      'last_month',
+      'last_7d',
+      'last_30d',
+      'all',
+      'custom'
+    ])
+    expect(defaultFinanceRange()).toEqual({ range: 'this_month' })
   })
 
-  it('last month covers the whole previous calendar month', () => {
-    expect(lastMonthRange(new Date(2026, 9, 30))).toEqual({ start: '2026-09-01', end: '2026-09-30' })
-    expect(lastMonthRange(new Date(2026, 2, 31))).toEqual({ start: '2026-02-01', end: '2026-02-28' })
-    expect(lastMonthRange(new Date(2027, 0, 15))).toEqual({ start: '2026-12-01', end: '2026-12-31' })
+  it('validates custom ranges (ordered and well-formed, no length cap)', () => {
+    expect(isValidCustomRange('2026-10-01', '2026-10-01')).toBe(true)
+    expect(isValidCustomRange('2020-01-01', '2026-12-31')).toBe(true)
+    expect(isValidCustomRange('2026-10-02', '2026-10-01')).toBe(false)
+    expect(isValidCustomRange('', '2026-10-01')).toBe(false)
+    expect(isValidCustomRange('2026-13-01', '2026-10-01')).toBe(false)
+    expect(isValidCustomRange('2026-02-30', '2026-03-01')).toBe(false)
   })
 
-  it('resolves presets', () => {
-    const now = new Date(2026, 9, 30)
-    expect(presetRange('thisMonth', now)).toEqual(thisMonthRange(now))
-    expect(presetRange('lastMonth', now)).toEqual(lastMonthRange(now))
+  it('flags a lagging or never-run ledger', () => {
+    expect(LEDGER_LAG_WARN_SECONDS).toBe(300)
+    expect(ledgerIsLagging(null)).toBe(false)
+    expect(ledgerIsLagging(ledger(30))).toBe(false)
+    expect(ledgerIsLagging(ledger(300))).toBe(false)
+    expect(ledgerIsLagging(ledger(301))).toBe(true)
+    expect(ledgerIsLagging(ledger(-1))).toBe(true)
   })
 
-  it('validates custom ranges (ordered, well-formed, at most the backend maximum)', () => {
-    expect(FINANCE_MAX_RANGE_DAYS).toBe(366)
-    expect(isValidFinanceRange({ start: '2026-10-01', end: '2026-10-01' })).toBe(true)
-    expect(isValidFinanceRange({ start: '2026-01-01', end: '2026-12-31' })).toBe(true)
-    expect(isValidFinanceRange({ start: '2025-01-01', end: '2026-01-01' })).toBe(true)
-    expect(isValidFinanceRange({ start: '2025-01-01', end: '2026-01-02' })).toBe(false)
-    expect(isValidFinanceRange({ start: '2026-10-02', end: '2026-10-01' })).toBe(false)
-    expect(isValidFinanceRange({ start: '', end: '2026-10-01' })).toBe(false)
-    expect(isValidFinanceRange({ start: '2026-13-01', end: '2026-10-01' })).toBe(false)
+  it('expresses lag in the largest whole unit', () => {
+    expect(ledgerLag(45)).toEqual({ unit: 'seconds', n: 45 })
+    expect(ledgerLag(600)).toEqual({ unit: 'minutes', n: 10 })
+    expect(ledgerLag(7300)).toEqual({ unit: 'hours', n: 2 })
+    expect(ledgerLag(3 * 86400 + 5)).toEqual({ unit: 'days', n: 3 })
   })
 })

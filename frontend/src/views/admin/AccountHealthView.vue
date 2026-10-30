@@ -55,6 +55,12 @@
                 {{ row.name }}
               </router-link>
               <PlatformTypeBadge :platform="row.platform" :type="row.type" />
+              <span
+                v-if="showOwnerLabel"
+                class="truncate text-xs text-gray-500 dark:text-gray-400"
+                :title="ownerLabel(row)"
+                :data-testid="`account-health-owner-${row.id}`"
+              >{{ ownerLabel(row) }}</span>
             </div>
           </template>
 
@@ -112,7 +118,24 @@
           </template>
 
           <template #cell-cost="{ row }">
-            <span class="text-sm text-gray-900 dark:text-gray-100">{{ formatCurrency(row.cost) }}</span>
+            <span class="whitespace-nowrap text-sm text-gray-900 dark:text-gray-100" :data-testid="`account-health-billed-${row.id}`">
+              {{ formatPreciseUSD(row.cost) }}
+            </span>
+          </template>
+
+          <template #cell-official_cost="{ row }">
+            <span class="whitespace-nowrap text-sm text-gray-900 dark:text-gray-100" :data-testid="`account-health-official-${row.id}`">
+              {{ formatPreciseUSD(row.official_cost) }}
+            </span>
+          </template>
+
+          <template #cell-earnings="{ row }">
+            <div class="flex flex-col text-sm" :data-testid="`account-health-earnings-${row.id}`">
+              <span class="whitespace-nowrap font-medium text-gray-900 dark:text-gray-100">{{ formatPreciseUSD(row.earnings) }}</span>
+              <span v-if="row.pending_requests > 0" class="whitespace-nowrap text-xs text-amber-600 dark:text-amber-400">
+                {{ t('admin.accountHealth.pendingRequests', { count: formatNumber(row.pending_requests) }) }}
+              </span>
+            </div>
           </template>
 
           <template #cell-last_success_at="{ row }">
@@ -141,6 +164,8 @@
         </DataTable>
       </template>
     </TablePageLayout>
+
+    <OwnerSettlementPanel v-if="!isOwner" class="mt-6" :owner-user-id="ownerUserId" />
   </AppLayout>
 </template>
 
@@ -165,15 +190,16 @@ import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AccountHealthTotals from '@/components/admin/account/AccountHealthTotals.vue'
 import OwnerEarningsCard from '@/components/admin/finance/OwnerEarningsCard.vue'
+import OwnerSettlementPanel from '@/components/admin/finance/OwnerSettlementPanel.vue'
 import OwnerSelect from '@/components/admin/finance/OwnerSelect.vue'
 import {
   formatCompactNumber,
-  formatCurrency,
   formatDateTime,
   formatNumber,
   formatNumberLocaleString,
   formatRelativeTime
 } from '@/utils/format'
+import { formatPreciseUSD } from '@/utils/preciseMoney'
 import {
   ACCOUNT_HEALTH_BADGE_CLASS,
   ACCOUNT_HEALTH_THRESHOLDS,
@@ -204,10 +230,22 @@ const columns = computed<Column[]>(() => [
   { key: 'ttft_p50_ms', label: t('admin.accountHealth.columns.ttft'), sortable: true },
   { key: 'duration_p50_ms', label: t('admin.accountHealth.columns.duration'), sortable: true },
   { key: 'tokens_in', label: t('admin.accountHealth.columns.tokens'), sortable: true },
-  { key: 'cost', label: t('admin.accountHealth.columns.cost'), sortable: true },
+  // Billed-to-users (actual_cost) is admin-only; owners get official price + payable.
+  ...(isOwner.value ? [] : [{ key: 'cost', label: t('admin.accountHealth.columns.billed'), sortable: true }]),
+  { key: 'official_cost', label: t('admin.accountHealth.columns.officialCost'), sortable: true },
+  { key: 'earnings', label: t('admin.accountHealth.columns.earnings'), sortable: true },
   { key: 'last_success_at', label: t('admin.accountHealth.columns.lastSuccess'), sortable: true },
   { key: 'last_error_at', label: t('admin.accountHealth.columns.lastError'), sortable: true }
 ])
+
+// With no owner filter, rows from many owners mix, so label each with its owner.
+const showOwnerLabel = computed(() => !isOwner.value && ownerUserId.value === null)
+
+function ownerLabel(row: AccountHealthItem): string {
+  if (row.owner_user_id === null || row.owner_user_id === undefined) return t('admin.accountHealth.unowned')
+  const email = row.owner_email || `#${row.owner_user_id}`
+  return row.owner_username ? `${email} (${row.owner_username})` : email
+}
 
 const windowText = computed(() => {
   if (!windowStart.value || !windowEnd.value) return ''

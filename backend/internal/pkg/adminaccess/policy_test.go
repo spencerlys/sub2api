@@ -113,7 +113,7 @@ func TestScopedAdminPolicyValidationAndGlobalIsolation(t *testing.T) {
 			all.Rules = append(all.Rules, Rule{Permissions: []string{perm.ID}, AllGroups: true, IncludeUngrouped: true, AccountTypes: []string{"oauth", "apikey"}})
 		}
 	}
-	for _, path := range []string{"/api/v1/admin/future-endpoint", "/api/v1/admin/settings/admin-api-key/regenerate", "/api/v1/admin/settings/admin-api-keys", "/api/v1/admin/system/restart", "/api/v1/admin/accounts/data", "/api/v1/admin/backups/:id/download-url", "/api/v1/admin/owner-settlements", "/api/v1/admin/owner-settlements/me", "/api/v1/admin/finance/summary", "/api/v1/admin/owner-payouts", "/api/v1/admin/owner-payouts/:id", "/api/v1/admin/users/:id/balance-history/:recordId/source"} {
+	for _, path := range []string{"/api/v1/admin/future-endpoint", "/api/v1/admin/settings/admin-api-key/regenerate", "/api/v1/admin/settings/admin-api-keys", "/api/v1/admin/system/restart", "/api/v1/admin/accounts/data", "/api/v1/admin/backups/:id/download-url", "/api/v1/admin/owner-settlements", "/api/v1/admin/owner-settlements/me", "/api/v1/admin/finance/summary", "/api/v1/admin/finance/rebuild-ledger", "/api/v1/admin/owner-payouts", "/api/v1/admin/owner-payouts/:id", "/api/v1/admin/users/:id/balance-history/:recordId/source"} {
 		for _, method := range []string{"GET", "POST", "PUT", "DELETE"} {
 			require.False(t, RouteAllowed(all, method, path), method+" "+path)
 		}

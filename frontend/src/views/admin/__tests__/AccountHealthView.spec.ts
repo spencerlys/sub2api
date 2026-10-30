@@ -3,11 +3,12 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import type { AccountHealthItem, AccountHealthResponse } from '@/api/admin/accountHealth'
 
-const { getAccountHealth, showError, listUsers, getMyOwnerSettlement, authState } = vi.hoisted(() => ({
+const { getAccountHealth, showError, listUsers, getMyOwnerSettlement, getOwnerSettlements, authState } = vi.hoisted(() => ({
   getAccountHealth: vi.fn(),
   showError: vi.fn(),
   listUsers: vi.fn(),
   getMyOwnerSettlement: vi.fn(),
+  getOwnerSettlements: vi.fn(),
   authState: { isOwner: false, isAdmin: true }
 }))
 
@@ -15,7 +16,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accountHealth: { getAccountHealth },
     users: { list: listUsers },
-    finance: { getMyOwnerSettlement }
+    finance: { getMyOwnerSettlement, getOwnerSettlements }
   }
 }))
 
@@ -63,6 +64,13 @@ function healthItem(overrides: Partial<AccountHealthItem> = {}): AccountHealthIt
     tokens_out: 3400,
     tokens_cache: 5000,
     cost: 1.25,
+    official_cost: 2.5,
+    earnings: 0.75,
+    pending_requests: 0,
+    account_cost: 1,
+    owner_user_id: 4,
+    owner_email: 'owner@example.com',
+    owner_username: 'own',
     last_success_at: '2026-10-30T00:00:00Z',
     last_error_at: null,
     last_error_category: '',
@@ -99,14 +107,28 @@ describe('admin AccountHealthView', () => {
     listUsers.mockResolvedValue({ items: [{ id: 4, email: 'owner@example.com', username: 'own' }], total: 1 })
     getMyOwnerSettlement.mockReset()
     getMyOwnerSettlement.mockResolvedValue({
+      range: 'this_month',
+      timezone: 'Asia/Shanghai',
       start_time: '',
       end_time: '',
       requests: 5,
       official_cost: 9,
       earnings: 3,
+      pending_requests: 0,
       earnings_all_time: 6,
       paid_total: 2,
-      unpaid: 4
+      unpaid: 4,
+      ledger: null
+    })
+    getOwnerSettlements.mockReset()
+    getOwnerSettlements.mockResolvedValue({
+      range: 'this_month',
+      timezone: 'Asia/Shanghai',
+      start_time: '',
+      end_time: '',
+      ledger: null,
+      items: [],
+      totals: null
     })
     authState.isOwner = false
     authState.isAdmin = true
@@ -228,6 +250,9 @@ describe('admin AccountHealthView', () => {
     expect(wrapper.get('[data-testid="account-health-total-tokens_in"]').text()).toContain('1.5K')
     expect(wrapper.get('[data-testid="account-health-total-tokens_cache"]').text()).toContain('10')
     expect(wrapper.get('[data-testid="account-health-total-cost"]').text()).toContain('2.00')
+    expect(wrapper.get('[data-testid="account-health-total-cost"]').text()).toContain('admin.accountHealth.totals.billed')
+    expect(wrapper.get('[data-testid="account-health-total-official_cost"]').text()).toContain('$5.0000')
+    expect(wrapper.get('[data-testid="account-health-total-earnings"]').text()).toContain('$1.5000')
 
     await wrapper.get('[data-testid="owner-select"]').setValue('4')
     await flushPromises()
@@ -242,18 +267,73 @@ describe('admin AccountHealthView', () => {
     expect(getAccountHealth).toHaveBeenLastCalledWith('7d')
   })
 
-  it('shows owners their earnings card instead of the owner filter and totals', async () => {
+  it('shows owners their earnings card instead of the owner filter, totals and settlement panel', async () => {
     authState.isOwner = true
     authState.isAdmin = false
-    getAccountHealth.mockResolvedValue(response([healthItem()]))
+    // Owners never receive billed amounts, account cost or owner identities.
+    const ownerRow: Partial<AccountHealthItem> = healthItem({ official_cost: 2.5, earnings: 0.75, pending_requests: 3 })
+    for (const key of ['cost', 'account_cost', 'owner_user_id', 'owner_email', 'owner_username'] as const) delete ownerRow[key]
+    getAccountHealth.mockResolvedValue(response([ownerRow as AccountHealthItem]))
     const wrapper = mountView()
     await flushPromises()
 
     expect(getAccountHealth).toHaveBeenCalledWith('24h')
     expect(getMyOwnerSettlement).toHaveBeenCalledTimes(1)
+    expect(getOwnerSettlements).not.toHaveBeenCalled()
     expect(listUsers).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="owner-earnings-card"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="owner-select"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="account-health-totals"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="owner-settlement-panel"]').exists()).toBe(false)
+
+    expect(wrapper.text()).not.toContain('admin.accountHealth.columns.billed')
+    expect(wrapper.find('[data-testid="account-health-billed-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="account-health-owner-1"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('admin.accountHealth.columns.officialCost')
+    expect(wrapper.text()).toContain('admin.accountHealth.columns.earnings')
+    expect(wrapper.get('[data-testid="account-health-official-1"]').text()).toContain('$2.5000')
+    expect(wrapper.get('[data-testid="account-health-earnings-1"]').text()).toContain('$0.750000')
+    expect(wrapper.get('[data-testid="account-health-earnings-1"]').text()).toContain('admin.accountHealth.pendingRequests')
+  })
+
+  it('labels each row with its owner when showing all owners, and shows billed / official / payable', async () => {
+    getAccountHealth.mockResolvedValue(
+      response([
+        healthItem({ id: 1, cost: 1.25, official_cost: 2.5, earnings: 0.75 }),
+        healthItem({ id: 2, owner_user_id: 6, owner_email: 'solo@example.com', owner_username: '' }),
+        healthItem({ id: 3, owner_user_id: null, owner_email: '', owner_username: '' })
+      ])
+    )
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="account-health-owner-1"]').text()).toBe('owner@example.com (own)')
+    expect(wrapper.get('[data-testid="account-health-owner-2"]').text()).toBe('solo@example.com')
+    expect(wrapper.get('[data-testid="account-health-owner-3"]').text()).toBe('admin.accountHealth.unowned')
+
+    expect(wrapper.text()).toContain('admin.accountHealth.columns.billed')
+    expect(wrapper.text()).toContain('admin.accountHealth.columns.officialCost')
+    expect(wrapper.text()).toContain('admin.accountHealth.columns.earnings')
+    expect(wrapper.get('[data-testid="account-health-billed-1"]').text()).toBe('$1.2500')
+    expect(wrapper.get('[data-testid="account-health-official-1"]').text()).toBe('$2.5000')
+    expect(wrapper.get('[data-testid="account-health-earnings-1"]').text()).toBe('$0.750000')
+
+    // Filtering to one owner drops the now-redundant owner label.
+    await wrapper.get('[data-testid="owner-select"]').setValue('4')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="account-health-owner-1"]').exists()).toBe(false)
+  })
+
+  it('shows admins the settlement panel, following the page owner filter', async () => {
+    getAccountHealth.mockResolvedValue(response([healthItem()]))
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="owner-settlement-panel"]').exists()).toBe(true)
+    expect(getOwnerSettlements).toHaveBeenCalledWith({ range: 'this_month' })
+
+    await wrapper.get('[data-testid="owner-select"]').setValue('4')
+    await flushPromises()
+    expect(getOwnerSettlements).toHaveBeenLastCalledWith({ range: 'this_month' }, 4)
   })
 })

@@ -303,7 +303,7 @@ func TestOwnerUsageResponseHidesUserIdentity(t *testing.T) {
 		ID: 1, UserID: 5, APIKeyID: 6, AccountID: 1, TotalCost: 2, ActualCost: 3, IPAddress: &ip, UserAgent: &ua,
 		User: &service.User{ID: 5, Email: "victim@example.com"}, APIKey: &service.APIKey{ID: 6, Key: "sk-secret"},
 	}}
-	out, ok := adminUsageLogResponses(c, records).([]gin.H)
+	out, ok := adminUsageLogResponses(c, records, nil).([]gin.H)
 	require.True(t, ok)
 	require.Len(t, out, 1)
 	for _, key := range []string{"user_id", "api_key_id", "ip_address", "user_agent", "session_id", "subscription_id", "user", "api_key"} {
@@ -311,7 +311,10 @@ func TestOwnerUsageResponseHidesUserIdentity(t *testing.T) {
 	}
 	require.Equal(t, int64(1), out[0]["account_id"])
 	require.Equal(t, 2.0, out[0]["total_cost"])
-	require.Equal(t, 3.0, out[0]["actual_cost"])
+	// 所有者看不到用户计费金额与倍率。
+	for _, key := range []string{"actual_cost", "rate_multiplier", "account_rate_multiplier", "account_stats_cost"} {
+		require.NotContains(t, out[0], key)
+	}
 }
 
 // 守护拒绝非规范键名的前提：处理器绑定用的 encoding/json 确实按大小写不敏感

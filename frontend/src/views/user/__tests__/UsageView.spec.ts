@@ -5,6 +5,7 @@ import UsageView from '../UsageView.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
+import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 
 const {
   query,
@@ -158,8 +159,8 @@ function mountUsageView() {
         Select: true,
         DateRangePicker: true,
         Icon: true,
-        UsageStatsCards: chartStub,
-        UsageTable: { ...chartStub, props: ['columns'] },
+        UsageStatsCards: { ...chartStub, props: ['stats', 'variant'] },
+        UsageTable: { ...chartStub, props: ['columns', 'variant'] },
         UserErrorRequestsTable: chartStub,
         ModelDistributionChart: chartStub,
         GroupDistributionChart: chartStub,
@@ -232,6 +233,21 @@ describe('user UsageView', () => {
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+  })
+
+  it('renders totals and rows in the user billing variant (official / discount / charged only)', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    const cards = wrapper.findComponent(UsageStatsCards)
+    expect(cards.props('variant')).toBe('user')
+    expect(cards.props('stats')).toEqual(expect.objectContaining({ total_cost: 0.1, total_actual_cost: 0.08 }))
+
+    const table = wrapper.findComponent(UsageTable)
+    expect(table.props('variant')).toBe('user')
+    const keys = table.props('columns').map((column: { key: string }) => column.key)
+    expect(keys).toContain('cost')
+    expect(keys).not.toContain('earnings')
   })
 
   it('includes API keys after the first page in both record filters and queries by the selected key', async () => {

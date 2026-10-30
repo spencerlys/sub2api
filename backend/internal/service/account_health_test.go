@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -19,6 +20,13 @@ type accountHealthRepoStub struct {
 	usageCalls  [][]int64
 	errorCalls  [][]int64
 	start, end  time.Time
+	labels      map[int64]OwnerIdentity
+	labelCalls  [][]int64
+}
+
+func (s *accountHealthRepoStub) ListAccountOwnerLabels(_ context.Context, ownerIDs []int64) (map[int64]OwnerIdentity, error) {
+	s.labelCalls = append(s.labelCalls, ownerIDs)
+	return s.labels, nil
 }
 
 func (s *accountHealthRepoStub) ListAccountHealthAccounts(_ context.Context, ownerUserID *int64) ([]Account, error) {
@@ -141,4 +149,55 @@ func TestAccountHealthService_OwnerFilterForcedToSelf(t *testing.T) {
 	_, err = NewAccountHealthService(repo).GetAccountHealth(context.Background(), "24h", nil)
 	require.NoError(t, err)
 	require.Nil(t, repo.ownerFilter)
+}
+
+// 每账户的官方价、账户成本与应付（精确账本）；用户计费金额、账户成本与所有者身份只给管理员。
+func TestAccountHealthService_SettlementFieldsAndOwnerLabels(t *testing.T) {
+	ownerID := int64(7)
+	repo := &accountHealthRepoStub{
+		accounts: []Account{
+			{ID: 1, Name: "owned", Status: StatusActive, OwnerUserID: &ownerID},
+			{ID: 2, Name: "admin-own", Status: StatusActive},
+		},
+		usage: map[int64]*AccountHealthUsage{
+			1: {RequestsOK: 3, Cost: 1.6, OfficialCost: 2, AccountCost: 1, Earnings: 0.75, PendingRequests: 1},
+			2: {RequestsOK: 1, Cost: 0.5, OfficialCost: 0.5, AccountCost: 0.5, Earnings: 0.5},
+		},
+		labels: map[int64]OwnerIdentity{7: {UserID: 7, Email: "owner@example.com", Username: "o"}},
+	}
+	svc := NewAccountHealthService(repo)
+
+	report, err := svc.GetAccountHealth(context.Background(), "24h", nil)
+	require.NoError(t, err)
+	owned, unowned := report.Items[0], report.Items[1]
+	require.NotNil(t, owned.Cost)
+	require.InDelta(t, 1.6, *owned.Cost, 1e-12)
+	require.InDelta(t, 2, owned.OfficialCost, 1e-12)
+	require.NotNil(t, owned.AccountCost)
+	require.InDelta(t, 0.75, owned.Earnings, 1e-12)
+	require.EqualValues(t, 1, owned.PendingRequests)
+	require.Equal(t, &ownerID, owned.OwnerUserID)
+	require.Equal(t, "owner@example.com", owned.OwnerEmail)
+	require.Equal(t, "o", owned.OwnerUsername)
+	require.Zero(t, unowned.Earnings, "accounts without an owner have nothing payable")
+	require.Nil(t, unowned.OwnerUserID)
+	require.Equal(t, [][]int64{{7}}, repo.labelCalls)
+
+	ownerCtx := adminaccess.WithPrincipal(context.Background(), &adminaccess.Principal{OwnerUserID: 7, Policy: adminaccess.OwnerPolicy()})
+	repo.accounts = repo.accounts[:1]
+	repo.labelCalls = nil
+	report, err = svc.GetAccountHealth(ownerCtx, "24h", nil)
+	require.NoError(t, err)
+	item := report.Items[0]
+	require.Nil(t, item.Cost, "owners never see what users were billed")
+	require.Nil(t, item.AccountCost)
+	require.Empty(t, item.OwnerEmail)
+	require.InDelta(t, 2, item.OfficialCost, 1e-12)
+	require.InDelta(t, 0.75, item.Earnings, 1e-12)
+	require.Nil(t, repo.labelCalls, "owner requests never load owner identities")
+	raw, err := json.Marshal(item)
+	require.NoError(t, err)
+	for _, forbidden := range []string{`"cost"`, `"account_cost"`, `"owner_email"`, `"owner_username"`} {
+		require.NotContains(t, string(raw), forbidden)
+	}
 }

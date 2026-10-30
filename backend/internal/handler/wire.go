@@ -53,7 +53,9 @@ func ProvideAdminHandlers(
 	claudeResetCredits *service.ClaudeResetCreditService,
 	accountHealth *service.AccountHealthService,
 	ownerSettlementHandler *admin.OwnerSettlementHandler,
+	costLedger *service.UsageCostLedgerService,
 ) *AdminHandlers {
+	usageHandler.SetCostLedger(costLedger)
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetOpenCodeGoUsageService(opencodeGoUsage)

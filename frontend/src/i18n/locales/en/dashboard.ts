@@ -415,6 +415,8 @@ export default {
     resetNow: 'Now',
     resetPending: 'Pending refresh',
     accountMultiplier: 'Account rate',
+    officialCost: 'Official price',
+    discountRate: 'Discount rate',
     avgDuration: 'Avg Duration',
     inSelectedRange: 'in selected range',
     perRequest: 'per request',

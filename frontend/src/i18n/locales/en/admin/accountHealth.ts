@@ -14,7 +14,9 @@ export default {
       ttft: 'TTFT p50 / p95',
       duration: 'Duration p50',
       tokens: 'Tokens In / Out',
-      cost: 'Cost',
+      billed: 'Billed to users',
+      officialCost: 'Official cost',
+      earnings: 'Payable',
       lastSuccess: 'Last Success',
       lastError: 'Last Error'
     },
@@ -47,8 +49,12 @@ export default {
       tokensIn: 'Input tokens',
       tokensOut: 'Output tokens',
       tokensCache: 'Cache tokens',
-      cost: 'Cost'
+      billed: 'Billed to users',
+      officialCost: 'Official cost',
+      earnings: 'Payable'
     },
+    unowned: 'Unowned',
+    pendingRequests: '{count} pending settlement',
     errorCategory: {
       rate_limit: 'Rate limit',
       overloaded: 'Overloaded',

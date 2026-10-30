@@ -57,8 +57,20 @@ export interface AccountHealthItem {
   tokens_out: number
   /** Cache creation + cache read tokens. */
   tokens_cache: number
-  /** USD, sum of actual_cost. */
-  cost: number
+  /** Admins only (absent for owners): USD billed to users, sum of actual_cost. */
+  cost?: number
+  /** USD at official list price. */
+  official_cost: number
+  /** USD owner payable for the window (exact settlement ledger). */
+  earnings: number
+  /** Requests the ledger has not split yet; excluded from earnings. */
+  pending_requests: number
+  /** Admins only: USD, official price × account multiplier. */
+  account_cost?: number
+  /** Admins only: the account's owner (null = unowned). */
+  owner_user_id?: number | null
+  owner_email?: string
+  owner_username?: string
   last_success_at: string | null
   last_error_at: string | null
   last_error_category: AccountHealthErrorCategory | ''

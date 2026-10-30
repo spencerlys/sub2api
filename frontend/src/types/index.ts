@@ -1890,6 +1890,16 @@ export interface AdminUsageLog extends UsageLog {
   // 自定义定价规则计算的账号统计费用（nil 时使用 total_cost * multiplier）
   account_stats_cost?: number | null
 
+  // 现金/赠送拆分(后台账本异步计算;split_pending=true 时为 null,不得猜测)
+  // paid_cost/gift_cost/gift_account_cost 仅管理员可见;owner 行只含 earnings
+  paid_cost?: number | null
+  gift_cost?: number | null
+  /** 号主应付(owner 视角即收益) = account_cost × paid_cost / actual_cost;账号无号主或待拆分时为 null */
+  earnings?: number | null
+  /** 赠送额度对应的账号成本(仅参考) */
+  gift_account_cost?: number | null
+  split_pending?: boolean
+
   // 渠道 ID 和计费等级（仅管理员可见）
   channel_id?: number | null
   billing_tier?: string | null

@@ -7,7 +7,6 @@ const { get, post, put, del } = vi.hoisted(() => ({
   del: vi.fn()
 }))
 vi.mock('@/api/client', () => ({ apiClient: { get, post, put, delete: del } }))
-vi.mock('@/utils/format', () => ({ getBrowserTimeZone: () => 'Asia/Shanghai' }))
 
 import {
   createOwnerPayout,
@@ -15,11 +14,12 @@ import {
   getFinanceSummary,
   getMyOwnerSettlement,
   getOwnerSettlements,
-  listOwnerPayouts
+  listOwnerPayouts,
+  rebuildLedger
 } from '@/api/admin/finance'
 import { updateBalance, updateBalanceRecordSource } from '@/api/admin/users'
 
-const range = { start: '2026-10-01', end: '2026-10-30' }
+const custom = { range: 'custom' as const, start: '2026-10-01', end: '2026-10-30' }
 
 describe('admin finance API', () => {
   beforeEach(() => {
@@ -29,34 +29,47 @@ describe('admin finance API', () => {
     }
   })
 
-  it('requests owner settlements with the range, timezone and optional owner filter', async () => {
-    await expect(getOwnerSettlements(range)).resolves.toEqual({ ok: true })
+  it('sends only the preset name for preset ranges (server computes the days, no timezone)', async () => {
+    for (const range of ['today', 'yesterday', 'this_month', 'last_month', 'last_7d', 'last_30d', 'all'] as const) {
+      await getOwnerSettlements({ range })
+      expect(get).toHaveBeenLastCalledWith('/admin/owner-settlements', { params: { range } })
+    }
+    // Stray dates on a preset are not sent.
+    await getOwnerSettlements({ range: 'today', start: '2026-01-01', end: '2026-01-02' })
+    expect(get).toHaveBeenLastCalledWith('/admin/owner-settlements', { params: { range: 'today' } })
+  })
+
+  it('requests owner settlements with a custom range and an optional owner filter', async () => {
+    await expect(getOwnerSettlements(custom)).resolves.toEqual({ ok: true })
     expect(get).toHaveBeenLastCalledWith('/admin/owner-settlements', {
-      params: { start: '2026-10-01', end: '2026-10-30', timezone: 'Asia/Shanghai' }
+      params: { range: 'custom', start: '2026-10-01', end: '2026-10-30' }
     })
 
-    await getOwnerSettlements(range, 7)
+    await getOwnerSettlements({ range: 'all' }, 7)
     expect(get).toHaveBeenLastCalledWith('/admin/owner-settlements', {
-      params: { start: '2026-10-01', end: '2026-10-30', timezone: 'Asia/Shanghai', owner_user_id: 7 }
+      params: { range: 'all', owner_user_id: 7 }
     })
   })
 
   it('requests the caller-owned settlement', async () => {
-    await getMyOwnerSettlement(range)
+    await getMyOwnerSettlement({ range: 'today' })
+    expect(get).toHaveBeenLastCalledWith('/admin/owner-settlements/me', { params: { range: 'today' } })
+
+    await getMyOwnerSettlement(custom)
     expect(get).toHaveBeenLastCalledWith('/admin/owner-settlements/me', {
-      params: { start: '2026-10-01', end: '2026-10-30', timezone: 'Asia/Shanghai' }
+      params: { range: 'custom', start: '2026-10-01', end: '2026-10-30' }
     })
   })
 
-  it('lists owner payouts with pagination and an optional owner', async () => {
-    await listOwnerPayouts({ ...range, page: 2, pageSize: 10 })
+  it('lists owner payouts with the range, pagination and an optional owner', async () => {
+    await listOwnerPayouts({ range: custom, page: 2, pageSize: 10 })
     expect(get).toHaveBeenLastCalledWith('/admin/owner-payouts', {
-      params: { start: '2026-10-01', end: '2026-10-30', timezone: 'Asia/Shanghai', page: 2, page_size: 10 }
+      params: { range: 'custom', start: '2026-10-01', end: '2026-10-30', page: 2, page_size: 10 }
     })
 
-    await listOwnerPayouts({ ...range, ownerUserId: 3 })
+    await listOwnerPayouts({ range: { range: 'last_month' }, ownerUserId: 3 })
     expect(get).toHaveBeenLastCalledWith('/admin/owner-payouts', {
-      params: { start: '2026-10-01', end: '2026-10-30', timezone: 'Asia/Shanghai', page: 1, page_size: 20, owner_user_id: 3 }
+      params: { range: 'last_month', page: 1, page_size: 20, owner_user_id: 3 }
     })
   })
 
@@ -70,10 +83,14 @@ describe('admin finance API', () => {
   })
 
   it('requests the finance summary', async () => {
-    await getFinanceSummary(range)
-    expect(get).toHaveBeenLastCalledWith('/admin/finance/summary', {
-      params: { start: '2026-10-01', end: '2026-10-30', timezone: 'Asia/Shanghai' }
-    })
+    await getFinanceSummary({ range: 'last_7d' })
+    expect(get).toHaveBeenLastCalledWith('/admin/finance/summary', { params: { range: 'last_7d' } })
+  })
+
+  it('asks the backend to rebuild the settlement ledger', async () => {
+    post.mockResolvedValue({ data: { rebuild_pending: true } })
+    await expect(rebuildLedger()).resolves.toEqual({ rebuild_pending: true })
+    expect(post).toHaveBeenLastCalledWith('/admin/finance/rebuild-ledger')
   })
 })
 

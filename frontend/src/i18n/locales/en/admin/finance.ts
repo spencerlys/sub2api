@@ -1,17 +1,25 @@
 export default {
   finance: {
     title: 'Finance',
-    description: 'Money received by source, owner settlements and owner payouts',
+    description: 'Money received by source, usage consumption, owner settlements and owner payouts',
     loadFailed: 'Failed to load finance data',
     period: {
       label: 'Period',
-      thisMonth: 'This month',
-      lastMonth: 'Last month',
-      custom: 'Custom',
+      presets: {
+        today: 'Today',
+        yesterday: 'Yesterday',
+        this_month: 'This month',
+        last_month: 'Last month',
+        last_7d: 'Last 7 days',
+        last_30d: 'Last 30 days',
+        all: 'All',
+        custom: 'Custom'
+      },
       start: 'Start date',
       end: 'End date',
       apply: 'Apply',
-      invalidRange: 'Pick a start date on or before the end date, at most 366 days apart'
+      invalidRange: 'Pick a start date on or before the end date',
+      allTime: 'All time'
     },
     ownerSelect: {
       label: 'Owner',
@@ -51,21 +59,77 @@ export default {
       deductions: 'Deductions',
       deductionsCount: '{count} records'
     },
+    consumption: {
+      title: 'Usage consumed',
+      requests: 'Requests',
+      userBilled: 'Receivable from users',
+      userBilledHint: 'Total billed to users for usage in this period (paid + gift portions, plus pending)',
+      paidCost: 'Paid by cash balance',
+      paidCostHint: 'Part of the receivable funded by money users paid',
+      giftCost: 'Paid by gift balance',
+      giftCostHint: 'Part of the receivable funded by gifted credit',
+      pending: 'Pending settlement',
+      pendingRequests: '{count} requests',
+      pendingHint: 'Requests the settlement ledger has not split into paid / gift yet'
+    },
+    ledger: {
+      title: 'Settlement ledger',
+      description: 'Background job that splits every request into its paid and gift-funded parts',
+      processedUntil: 'Processed until',
+      lag: 'Lag',
+      lastRebuild: 'Last rebuild',
+      lastError: 'Last error',
+      noError: 'None',
+      neverRanShort: 'Never ran',
+      neverRan: 'The settlement ledger has not run yet; figures may be incomplete',
+      lagNote: 'Settlement is {lag} behind; the most recent usage is not included yet',
+      pendingNote: '{count} requests pending settlement, not yet included',
+      lagUnits: {
+        seconds: '{n} s',
+        minutes: '{n} min',
+        hours: '{n} h',
+        days: '{n} d'
+      },
+      rebuild: 'Rebuild ledger',
+      rebuildTitle: 'Rebuild settlement ledger',
+      rebuildConfirm:
+        'Recompute the paid / gift split for all usage from scratch? It runs in the background and usually finishes within a minute; figures may change afterwards.',
+      rebuildStarted: 'Ledger rebuild scheduled',
+      rebuildFailed: 'Failed to schedule the ledger rebuild',
+      rebuildPending: 'Rebuild in progress'
+    },
     settlement: {
       title: 'Owner settlement',
       owner: 'Owner',
+      activeAccounts: 'Active accounts',
       requests: 'Requests',
       officialCost: 'Official price',
-      userBilled: 'Billed to users',
+      userBilled: 'Receivable from users',
+      paidCost: 'Paid portion',
+      giftCost: 'Gift portion',
       accountCost: 'Account cost',
-      earnings: 'Earnings (period)',
-      earningsAllTime: 'Earnings (all time)',
+      earnings: 'Payable (period)',
+      giftAccountCost: 'Gift-funded account cost',
+      referenceOnly: 'Reference, not payable',
+      earningsAllTime: 'Payable (all time)',
       paidTotal: 'Paid out',
       unpaid: 'Unpaid',
       actions: 'Actions',
       totals: 'Total',
       empty: 'No owner activity in this period',
-      recordPayout: 'Record payout'
+      recordPayout: 'Record payout',
+      pendingRequests: '+{count} pending',
+      hints: {
+        activeAccounts: 'Accounts that are active and schedulable right now',
+        officialCost: 'Usage at official list price',
+        userBilled: 'What users were billed for this usage',
+        paidCost: 'Part of the receivable funded by paid balance',
+        giftCost: 'Part of the receivable funded by gift balance',
+        accountCost: 'Official price × account multiplier',
+        earnings: 'Owed to the owner: account cost of the paid-funded part only',
+        giftAccountCost: 'Account cost of the gift-funded part. Shown for reference; never added to payable',
+        unpaid: 'Payable (all time) minus paid out'
+      }
     },
     payout: {
       title: 'Record payout',
@@ -98,7 +162,7 @@ export default {
       officialCost: 'Total cost (official price)',
       earnings: 'Earnings this period',
       paidTotal: 'Paid out (all time)',
-      unpaid: 'Unpaid',
+      unpaid: 'Unpaid (all time)',
       loadFailed: 'Failed to load earnings'
     }
   }

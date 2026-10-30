@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 所有者只能读取本人结算；结算报表、打款、财务汇总与余额来源修改仅管理员可用。
+// 所有者只能读取本人结算；结算报表、打款、财务汇总、账本重建与余额来源修改仅管理员可用。
 func TestAdminAuthOwnerSettlementRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{JWT: config.JWTConfig{Secret: "test-secret", ExpireHour: 1}}
@@ -37,6 +37,7 @@ func TestAdminAuthOwnerSettlementRoutes(t *testing.T) {
 	adminOnly := [][2]string{
 		{http.MethodGet, "/api/v1/admin/owner-settlements"},
 		{http.MethodGet, "/api/v1/admin/finance/summary"},
+		{http.MethodPost, "/api/v1/admin/finance/rebuild-ledger"},
 		{http.MethodGet, "/api/v1/admin/owner-payouts"},
 		{http.MethodPost, "/api/v1/admin/owner-payouts"},
 		{http.MethodDelete, "/api/v1/admin/owner-payouts/1"},
@@ -45,6 +46,7 @@ func TestAdminAuthOwnerSettlementRoutes(t *testing.T) {
 	router.GET("/api/v1/admin/owner-settlements/me", ok)
 	router.GET("/api/v1/admin/owner-settlements", ok)
 	router.GET("/api/v1/admin/finance/summary", ok)
+	router.POST("/api/v1/admin/finance/rebuild-ledger", ok)
 	router.GET("/api/v1/admin/owner-payouts", ok)
 	router.POST("/api/v1/admin/owner-payouts", ok)
 	router.DELETE("/api/v1/admin/owner-payouts/:id", ok)

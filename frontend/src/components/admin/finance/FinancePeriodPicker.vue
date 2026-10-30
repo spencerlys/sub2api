@@ -1,8 +1,8 @@
 <template>
   <div class="flex flex-wrap items-center gap-2">
-    <div class="tabs inline-flex" role="tablist" :aria-label="t('admin.finance.period.label')">
+    <div class="tabs inline-flex flex-wrap" role="tablist" :aria-label="t('admin.finance.period.label')">
       <button
-        v-for="option in FINANCE_PERIOD_PRESETS"
+        v-for="option in FINANCE_RANGE_PRESETS"
         :key="option"
         type="button"
         role="tab"
@@ -12,7 +12,7 @@
         :data-testid="`finance-period-${option}`"
         @click="selectPreset(option)"
       >
-        {{ t(`admin.finance.period.${option}`) }}
+        {{ t(`admin.finance.period.presets.${option}`) }}
       </button>
     </div>
 
@@ -49,48 +49,49 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { FinanceDateRange } from '@/api/admin/finance'
-import {
-  FINANCE_PERIOD_PRESETS,
-  isValidFinanceRange,
-  presetRange,
-  type FinancePeriodPreset
-} from './financePeriod'
+import type { FinanceRange, FinanceRangeKind } from '@/api/admin/finance'
+import { FINANCE_RANGE_PRESETS, isValidCustomRange, toLocalDateString } from './financePeriod'
 
-const props = defineProps<{ modelValue: FinanceDateRange }>()
-const emit = defineEmits<{ (e: 'update:modelValue', value: FinanceDateRange): void }>()
+const props = defineProps<{ modelValue: FinanceRange }>()
+const emit = defineEmits<{ (e: 'update:modelValue', value: FinanceRange): void }>()
 
 const { t } = useI18n()
 
-function sameRange(a: FinanceDateRange, b: FinanceDateRange): boolean {
-  return a.start === b.start && a.end === b.end
+// Custom dates only seed the inputs; presets are resolved by the server.
+function seedDates(value: FinanceRange): { start: string; end: string } {
+  if (value.range === 'custom' && value.start && value.end) return { start: value.start, end: value.end }
+  const now = new Date()
+  return { start: toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1)), end: toLocalDateString(now) }
 }
 
-function initialPreset(): FinancePeriodPreset {
-  if (sameRange(props.modelValue, presetRange('thisMonth'))) return 'thisMonth'
-  if (sameRange(props.modelValue, presetRange('lastMonth'))) return 'lastMonth'
-  return 'custom'
-}
+const preset = ref<FinanceRangeKind>(props.modelValue.range)
+const seed = seedDates(props.modelValue)
+const customStart = ref(seed.start)
+const customEnd = ref(seed.end)
 
-const preset = ref<FinancePeriodPreset>(initialPreset())
-const customStart = ref(props.modelValue.start)
-const customEnd = ref(props.modelValue.end)
+const customValid = computed(() => isValidCustomRange(customStart.value, customEnd.value))
 
-const customValid = computed(() => isValidFinanceRange({ start: customStart.value, end: customEnd.value }))
+watch(
+  () => props.modelValue,
+  (value) => {
+    preset.value = value.range
+    if (value.range === 'custom' && value.start && value.end) {
+      customStart.value = value.start
+      customEnd.value = value.end
+    }
+  }
+)
 
-function selectPreset(next: FinancePeriodPreset) {
+function selectPreset(next: FinanceRangeKind) {
   preset.value = next
   if (next === 'custom') return
-  const range = presetRange(next)
-  customStart.value = range.start
-  customEnd.value = range.end
-  emit('update:modelValue', range)
+  emit('update:modelValue', { range: next })
 }
 
 function applyCustom() {
   if (!customValid.value) return
-  emit('update:modelValue', { start: customStart.value, end: customEnd.value })
+  emit('update:modelValue', { range: 'custom', start: customStart.value, end: customEnd.value })
 }
 </script>

@@ -67,8 +67,8 @@ func TestAccountHealthHandler_RangeValidation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, "24h", body.Data.Range)
 	require.Len(t, body.Data.Items, 1)
-	// 响应不含用户身份字段。
-	require.NotContains(t, w.Body.String(), "user_id")
+	// 响应不含请求用户身份字段（owner_user_id 为账户所有者，不是请求用户）。
+	require.NotContains(t, w.Body.String(), `"user_id"`)
 	require.NotContains(t, w.Body.String(), "api_key")
 
 	require.Equal(t, http.StatusOK, accountHealthCall(router, "?range=7d").Code)

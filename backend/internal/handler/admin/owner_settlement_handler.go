@@ -16,11 +16,12 @@ import (
 // OwnerSettlementHandler AI 账号所有者结算、打款记录与财务汇总。
 // 除 Mine 外均为管理员接口：路由目录不向所有者与管理密钥开放，处理器再拒绝一次。
 type OwnerSettlementHandler struct {
-	svc *service.OwnerSettlementService
+	svc    *service.OwnerSettlementService
+	ledger *service.UsageCostLedgerService
 }
 
-func NewOwnerSettlementHandler(svc *service.OwnerSettlementService) *OwnerSettlementHandler {
-	return &OwnerSettlementHandler{svc: svc}
+func NewOwnerSettlementHandler(svc *service.OwnerSettlementService, ledger *service.UsageCostLedgerService) *OwnerSettlementHandler {
+	return &OwnerSettlementHandler{svc: svc, ledger: ledger}
 }
 
 func (h *OwnerSettlementHandler) adminOnly(c *gin.Context) bool {
@@ -36,13 +37,15 @@ func (h *OwnerSettlementHandler) adminOnly(c *gin.Context) bool {
 	return true
 }
 
-func settlementPeriod(c *gin.Context) (time.Time, time.Time, bool) {
-	start, end, err := service.ParseSettlementPeriod(c.Query("start"), c.Query("end"), service.SettlementLocation(c.Query("timezone")), time.Now())
+// settlementPeriod 解析 range（today|yesterday|this_month|last_month|last_7d|last_30d|all|custom）与 custom 的 start/end；
+// 日界按站点时区计算，忽略请求中的 timezone。
+func (h *OwnerSettlementHandler) settlementPeriod(c *gin.Context) (service.ReportPeriod, bool) {
+	period, err := h.svc.ParsePeriod(c.Query("range"), c.Query("start"), c.Query("end"))
 	if err != nil {
 		response.ErrorFrom(c, err)
-		return time.Time{}, time.Time{}, false
+		return service.ReportPeriod{}, false
 	}
-	return start, end, true
+	return period, true
 }
 
 func optionalOwnerID(c *gin.Context) (*int64, bool) {
@@ -59,7 +62,7 @@ func optionalOwnerID(c *gin.Context) (*int64, bool) {
 }
 
 // List 所有者结算报表（每个所有者一行 + 合计）。
-// GET /api/v1/admin/owner-settlements?start=YYYY-MM-DD&end=YYYY-MM-DD[&owner_user_id=][&timezone=]
+// GET /api/v1/admin/owner-settlements?range=...[&start=YYYY-MM-DD&end=YYYY-MM-DD][&owner_user_id=]
 func (h *OwnerSettlementHandler) List(c *gin.Context) {
 	if !h.adminOnly(c) {
 		return
@@ -68,11 +71,11 @@ func (h *OwnerSettlementHandler) List(c *gin.Context) {
 	if !ok {
 		return
 	}
-	start, end, ok := settlementPeriod(c)
+	period, ok := h.settlementPeriod(c)
 	if !ok {
 		return
 	}
-	report, err := h.svc.GetOwnerSettlements(c.Request.Context(), start, end, ownerID)
+	report, err := h.svc.GetOwnerSettlements(c.Request.Context(), period, ownerID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -80,19 +83,19 @@ func (h *OwnerSettlementHandler) List(c *gin.Context) {
 	response.Success(c, report)
 }
 
-// Mine 所有者本人结算汇总；不含用户计费、账户倍率、实付占比与用户身份。
-// GET /api/v1/admin/owner-settlements/me?start=&end=[&timezone=]
+// Mine 所有者本人结算汇总；不含用户计费、实付/赠送拆分、账户倍率与用户身份。
+// GET /api/v1/admin/owner-settlements/me?range=...[&start=&end=]
 func (h *OwnerSettlementHandler) Mine(c *gin.Context) {
 	ownerID := adminaccess.OwnerUserID(c.Request.Context())
 	if ownerID <= 0 || h.svc == nil {
 		response.ErrorFrom(c, service.ErrSettlementOwnerOnly)
 		return
 	}
-	start, end, ok := settlementPeriod(c)
+	period, ok := h.settlementPeriod(c)
 	if !ok {
 		return
 	}
-	me, err := h.svc.GetMySettlement(c.Request.Context(), ownerID, start, end)
+	me, err := h.svc.GetMySettlement(c.Request.Context(), ownerID, period)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -100,17 +103,17 @@ func (h *OwnerSettlementHandler) Mine(c *gin.Context) {
 	response.Success(c, me)
 }
 
-// FinanceSummary 期间入账按来源汇总。
-// GET /api/v1/admin/finance/summary?start=&end=[&timezone=]
+// FinanceSummary 期间入账按来源汇总，另含期间消耗的实付/赠送拆分与账本进度。
+// GET /api/v1/admin/finance/summary?range=...[&start=&end=]
 func (h *OwnerSettlementHandler) FinanceSummary(c *gin.Context) {
 	if !h.adminOnly(c) {
 		return
 	}
-	start, end, ok := settlementPeriod(c)
+	period, ok := h.settlementPeriod(c)
 	if !ok {
 		return
 	}
-	summary, err := h.svc.GetFinanceSummary(c.Request.Context(), start, end)
+	summary, err := h.svc.GetFinanceSummary(c.Request.Context(), period)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -118,8 +121,26 @@ func (h *OwnerSettlementHandler) FinanceSummary(c *gin.Context) {
 	response.Success(c, summary)
 }
 
-// ListPayouts 打款记录（按打款时间倒序）；start/end 可选，按打款日期筛选。
-// GET /api/v1/admin/owner-payouts?owner_user_id=&start=&end=&page=&page_size=[&timezone=]
+// RebuildLedger 登记一次成本账本全量重建，由后台任务在下一轮（约 1 分钟内）执行。
+// POST /api/v1/admin/finance/rebuild-ledger
+func (h *OwnerSettlementHandler) RebuildLedger(c *gin.Context) {
+	if !h.adminOnly(c) {
+		return
+	}
+	if h.ledger == nil {
+		response.InternalError(c, "成本账本不可用")
+		return
+	}
+	status, err := h.ledger.RequestRebuild(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, status)
+}
+
+// ListPayouts 打款记录（按打款时间倒序）；range（或 start/end）可选，按打款日期筛选，range=all 不筛选。
+// GET /api/v1/admin/owner-payouts?owner_user_id=&range=&start=&end=&page=&page_size=
 func (h *OwnerSettlementHandler) ListPayouts(c *gin.Context) {
 	if !h.adminOnly(c) {
 		return
@@ -129,12 +150,14 @@ func (h *OwnerSettlementHandler) ListPayouts(c *gin.Context) {
 		return
 	}
 	filter := service.OwnerPayoutFilter{OwnerUserID: ownerID}
-	if c.Query("start") != "" || c.Query("end") != "" {
-		start, end, ok := settlementPeriod(c)
+	if c.Query("range") != "" || c.Query("start") != "" || c.Query("end") != "" {
+		period, ok := h.settlementPeriod(c)
 		if !ok {
 			return
 		}
-		filter.Start, filter.End = &start, &end
+		if period.Range != service.ReportRangeAll {
+			filter.Start, filter.End = &period.Start, &period.End
+		}
 	}
 	page, pageSize := response.ParsePagination(c)
 	items, total, err := h.svc.ListOwnerPayouts(c.Request.Context(), filter, pagination.PaginationParams{Page: page, PageSize: pageSize})

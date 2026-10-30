@@ -155,8 +155,28 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		logger.LegacyPrintf("service.admin", "audit: admin user created actor_admin_id=%d target_user_id=%d",
 			input.ActorAdminID, user.ID)
 	}
+	s.recordInitialBalance(ctx, user.ID, balance, input.Balance == nil)
 	s.assignDefaultSubscriptions(ctx, user.ID)
 	return user, nil
+}
+
+// recordInitialBalance 管理员创建用户时的初始余额记为赠送（[src:gift]），供成本账本识别；
+// 使用默认余额时与注册赠送同一备注。只记录正数，失败只记日志，不影响建号。
+func (s *adminServiceImpl) recordInitialBalance(ctx context.Context, userID int64, balance float64, usedDefault bool) {
+	if s.redeemCodeRepo == nil || userID <= 0 || balance <= 0 {
+		return
+	}
+	notes := AdminInitialBalanceNotes
+	if usedDefault {
+		notes = SignupBonusNotes
+	}
+	rec, err := newGiftBalanceRecord(userID, balance, notes)
+	if err == nil {
+		err = s.redeemCodeRepo.Create(ctx, rec)
+	}
+	if err != nil {
+		logger.LegacyPrintf("service.admin", "failed to record initial balance: user_id=%d err=%v", userID, err)
+	}
 }
 
 // ensureNotLastAdmin 降级管理员前确认系统中仍存在其他管理员，防止零 admin 锁死。

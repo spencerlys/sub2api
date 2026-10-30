@@ -122,6 +122,7 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	balanceRechargeRate *service.BalanceRechargeRateService,
+	usageCostLedger *service.UsageCostLedgerService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
 	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
@@ -367,6 +368,12 @@ func provideCleanup(
 			{"BalanceRechargeRateService", func() error {
 				if balanceRechargeRate != nil {
 					balanceRechargeRate.Stop()
+				}
+				return nil
+			}},
+			{"UsageCostLedgerService", func() error {
+				if usageCostLedger != nil {
+					usageCostLedger.Stop()
 				}
 				return nil
 			}},

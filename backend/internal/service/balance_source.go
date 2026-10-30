@@ -3,13 +3,15 @@ package service
 import (
 	"regexp"
 	"strings"
+	"time"
 )
 
 // 管理员余额调整（redeem_codes.type=admin_balance）的资金来源。不改表结构，
 // 以机器可读前缀 "[src:<source>] " 写在 notes 开头，其余备注原样保留。
 //   - gift：赠送（默认；无前缀的旧记录同样视为赠送）；
 //   - offline：线下实收；
-//   - correction：更正，既不算实付也不算赠送。
+//   - correction：更正。财务汇总中单列，不算收入；成本账本中正数按赠送计入，负数先冲减赠送
+//     （见 usage_cost_ledger.go 的负数规则）。
 //
 // SQL 侧解析见 repository.balanceSourceSQL，两处规则必须一致。
 const (
@@ -58,21 +60,7 @@ func FormatBalanceSourceNotes(source, notes string) string {
 	return "[src:" + src + "] " + rest
 }
 
-// PaidShare = paid / (paid + gift)，分母为 0 时为 0；负数输入按 0 处理。
-func PaidShare(paid, gift float64) float64 {
-	if paid < 0 {
-		paid = 0
-	}
-	if gift < 0 {
-		gift = 0
-	}
-	if paid+gift <= 0 {
-		return 0
-	}
-	return paid / (paid + gift)
-}
-
-// 入账种类：决定一笔正向入账算实付还是赠送。
+// 入账种类：决定一笔入账进赠送桶还是实付桶（见 LedgerBuckets.ApplyCredit）。
 const (
 	CreditKindPayment    = "payment"     // 在线支付到账（Amount 含 Bonus）
 	CreditKindAdmin      = "admin"       // 管理员调整，按 Source 区分
@@ -81,55 +69,28 @@ const (
 	CreditKindAffiliate  = "affiliate"   // 推广返利转入余额
 )
 
-// BalanceCredit 一笔（或同类汇总的）余额入账。
-type BalanceCredit struct {
-	Kind   string
-	Amount float64
-	// Bonus 仅对在线支付有效：到账金额中免费赠送的部分（payment_orders.bonus_amount）。
-	Bonus float64
-	// Source 仅对管理员调整有效：备注前缀中的原始来源值，未知或为空按 gift。
-	Source string
-}
+// 注册赠送等自动发放的余额以管理员调整记录（[src:gift]）留痕，余额本身的发放逻辑不变；
+// 成本账本据此把这部分余额计入赠送桶。
+const (
+	SignupBonusNotes         = "[src:gift] signup bonus"
+	FirstBindBonusNotes      = "[src:gift] first bind bonus"
+	AdminInitialBalanceNotes = "[src:gift] initial balance"
+)
 
-// UserCreditTotals 用户累计实付与赠送入账。
-type UserCreditTotals struct {
-	Paid float64
-	Gift float64
-}
-
-// Add 计入一笔入账；负数与更正不计入任何一方。
-func (t *UserCreditTotals) Add(c BalanceCredit) {
-	if c.Amount <= 0 {
-		return
+// newGiftBalanceRecord 构造一条已使用的赠送余额调整记录（redeem_codes.type=admin_balance）。
+func newGiftBalanceRecord(userID int64, amount float64, notes string) (*RedeemCode, error) {
+	code, err := GenerateRedeemCode()
+	if err != nil {
+		return nil, err
 	}
-	switch c.Kind {
-	case CreditKindPayment:
-		bonus := c.Bonus
-		if bonus < 0 {
-			bonus = 0
-		}
-		if bonus > c.Amount {
-			bonus = c.Amount
-		}
-		t.Paid += c.Amount - bonus
-		t.Gift += bonus
-	case CreditKindAdmin:
-		src, ok := NormalizeBalanceSource(c.Source)
-		if !ok {
-			src = BalanceSourceGift
-		}
-		switch src {
-		case BalanceSourceOffline:
-			t.Paid += c.Amount
-		case BalanceSourceGift:
-			t.Gift += c.Amount
-		}
-	default:
-		t.Gift += c.Amount
-	}
-}
-
-// PaidShare 用户的实付占比。
-func (t UserCreditTotals) PaidShare() float64 {
-	return PaidShare(t.Paid, t.Gift)
+	now := time.Now()
+	return &RedeemCode{
+		Code:   code,
+		Type:   AdjustmentTypeAdminBalance,
+		Value:  amount,
+		Status: StatusUsed,
+		UsedBy: &userID,
+		UsedAt: &now,
+		Notes:  notes,
+	}, nil
 }

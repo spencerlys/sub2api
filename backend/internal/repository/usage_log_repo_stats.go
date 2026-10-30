@@ -654,8 +654,9 @@ func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endT
 	return stats, nil
 }
 
-// GetStatsWithFilters gets usage statistics with optional filters
-func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters UsageLogFilters) (*UsageStats, error) {
+// usageStatsConditions /admin/usage/stats 的筛选条件（列名不带表别名，作用于 usage_logs）。
+// 成本账本的拆分汇总复用同一组条件，保证两者口径一致。
+func usageStatsConditions(filters UsageLogFilters) ([]string, []any) {
 	conditions := make([]string, 0, 9)
 	args := make([]any, 0, 9)
 
@@ -698,6 +699,12 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 		conditions = append(conditions, fmt.Sprintf("created_at < $%d", len(args)+1))
 		args = append(args, *filters.EndTime)
 	}
+	return conditions, args
+}
+
+// GetStatsWithFilters gets usage statistics with optional filters
+func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters UsageLogFilters) (*UsageStats, error) {
+	conditions, args := usageStatsConditions(filters)
 
 	query := fmt.Sprintf(`
 		WITH scoped AS (

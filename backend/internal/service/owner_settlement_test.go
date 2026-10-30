@@ -15,17 +15,18 @@ import (
 )
 
 type ownerSettlementRepoStub struct {
-	owners        []OwnerIdentity
-	usage         []OwnerUserUsage
-	credits       []UserCreditRow
-	payouts       map[int64]float64
-	finance       *FinancePeriodRaw
-	records       map[int64]*RedeemCode
-	ownerFilters  []*int64
-	creditUserIDs []int64
-	created       *OwnerPayout
-	deleted       int64
-	updatedNotes  map[int64]string
+	owners       []OwnerIdentity
+	usage        []OwnerSettlementUsage
+	active       map[int64]int64
+	payouts      map[int64]float64
+	finance      *FinancePeriodRaw
+	consumption  *FinanceConsumption
+	records      map[int64]*RedeemCode
+	ownerFilters []*int64
+	usageRange   [2]time.Time
+	created      *OwnerPayout
+	deleted      int64
+	updatedNotes map[int64]string
 }
 
 func filterOwner(id *int64, owner int64) bool { return id == nil || *id == owner }
@@ -41,8 +42,9 @@ func (s *ownerSettlementRepoStub) ListSettlementOwners(_ context.Context, ownerU
 	return out, nil
 }
 
-func (s *ownerSettlementRepoStub) AggregateOwnerUserUsage(_ context.Context, _, _ time.Time, ownerUserID *int64) ([]OwnerUserUsage, error) {
-	var out []OwnerUserUsage
+func (s *ownerSettlementRepoStub) AggregateOwnerSettlement(_ context.Context, start, end time.Time, ownerUserID *int64) ([]OwnerSettlementUsage, error) {
+	s.usageRange = [2]time.Time{start, end}
+	var out []OwnerSettlementUsage
 	for _, u := range s.usage {
 		if filterOwner(ownerUserID, u.OwnerUserID) {
 			out = append(out, u)
@@ -51,9 +53,18 @@ func (s *ownerSettlementRepoStub) AggregateOwnerUserUsage(_ context.Context, _, 
 	return out, nil
 }
 
-func (s *ownerSettlementRepoStub) ListUserCredits(_ context.Context, userIDs []int64) ([]UserCreditRow, error) {
-	s.creditUserIDs = append([]int64(nil), userIDs...)
-	return s.credits, nil
+func (s *ownerSettlementRepoStub) CountActiveOwnerAccounts(_ context.Context, ownerUserID *int64) (map[int64]int64, error) {
+	out := map[int64]int64{}
+	for id, n := range s.active {
+		if filterOwner(ownerUserID, id) {
+			out[id] = n
+		}
+	}
+	return out, nil
+}
+
+func (s *ownerSettlementRepoStub) AggregateFinanceConsumption(context.Context, time.Time, time.Time) (*FinanceConsumption, error) {
+	return s.consumption, nil
 }
 
 func (s *ownerSettlementRepoStub) SumOwnerPayouts(_ context.Context, ownerUserID *int64) (map[int64]float64, error) {
@@ -111,50 +122,51 @@ func settlementFixture() *ownerSettlementRepoStub {
 			{UserID: 20, Email: "owner-b@example.com", Username: "b"},
 			{UserID: 30, Email: "owner-idle@example.com", Username: "idle"},
 		},
-		usage: []OwnerUserUsage{
-			// 用户 1 只有赠送；用户 2 只有线下实付；用户 3 实付 30 / 赠送 10。
-			{OwnerUserID: 10, UserID: 1, Requests: 4, OfficialCost: 10, UserBilled: 12, AccountCost: 5, AccountCostAllTime: 50},
-			{OwnerUserID: 10, UserID: 2, Requests: 2, OfficialCost: 8, UserBilled: 9, AccountCost: 4, AccountCostAllTime: 40},
-			{OwnerUserID: 20, UserID: 3, Requests: 1, OfficialCost: 20, UserBilled: 20, AccountCost: 8, AccountCostAllTime: 16},
+		usage: []OwnerSettlementUsage{
+			{OwnerUserID: 10, Requests: 6, OfficialCost: 18, UserBilled: 21, PaidCost: 9, GiftCost: 12, AccountCost: 9,
+				Earnings: 4, GiftAccountCost: 5, PendingRequests: 0, EarningsAllTime: 40},
+			{OwnerUserID: 20, Requests: 1, OfficialCost: 20, UserBilled: 20, PaidCost: 10, GiftCost: 5, AccountCost: 8,
+				Earnings: 3, GiftAccountCost: 1, PendingRequests: 1, PendingAccountCost: 4, EarningsAllTime: 12},
 		},
-		credits: []UserCreditRow{
-			{UserID: 1, Credit: BalanceCredit{Kind: CreditKindAdmin, Amount: 100, Source: ""}},
-			{UserID: 2, Credit: BalanceCredit{Kind: CreditKindAdmin, Amount: 50, Source: "offline"}},
-			{UserID: 2, Credit: BalanceCredit{Kind: CreditKindAdmin, Amount: 500, Source: "correction"}},
-			{UserID: 3, Credit: BalanceCredit{Kind: CreditKindPayment, Amount: 40, Bonus: 10}},
-			{UserID: 3, Credit: BalanceCredit{Kind: CreditKindAdmin, Amount: -30, Source: "gift"}},
-		},
+		active:  map[int64]int64{10: 2, 20: 1},
 		payouts: map[int64]float64{10: 25, 20: 2},
 	}
 }
 
-func TestOwnerSettlementReportAppliesPaidShare(t *testing.T) {
+func testPeriod(start, end time.Time) ReportPeriod {
+	return ReportPeriod{Range: ReportRangeCustom, Start: start, End: end, Location: time.UTC}
+}
+
+func TestOwnerSettlementReportUsesExactSplit(t *testing.T) {
 	repo := settlementFixture()
-	svc := NewOwnerSettlementService(repo)
+	svc := NewOwnerSettlementService(repo, nil)
 	start := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 1, 0)
 
-	report, err := svc.GetOwnerSettlements(context.Background(), start, end, nil)
+	report, err := svc.GetOwnerSettlements(context.Background(), testPeriod(start, end), nil)
 	require.NoError(t, err)
 	require.Len(t, report.Items, 3)
-	require.ElementsMatch(t, []int64{1, 2, 3}, repo.creditUserIDs)
+	require.Equal(t, [2]time.Time{start, end}, repo.usageRange)
+	require.Equal(t, ReportRangeCustom, report.Range)
+	require.Equal(t, "UTC", report.Timezone)
+	require.NotNil(t, report.Ledger)
+	require.Equal(t, int64(-1), report.Ledger.LagSeconds, "no ledger: never ran")
 
 	a := report.Items[0]
 	require.Equal(t, int64(10), a.OwnerUserID)
 	require.Equal(t, "owner-a@example.com", a.Email)
+	require.Equal(t, int64(2), a.ActiveAccounts)
 	require.Equal(t, int64(6), a.Requests)
-	require.InDelta(t, 18, a.OfficialCost, 1e-9)
-	require.InDelta(t, 21, a.UserBilled, 1e-9)
-	require.InDelta(t, 9, a.AccountCost, 1e-9)
-	require.InDelta(t, 4, a.Earnings, 1e-9, "gift-only user earns nothing, paid user earns full account cost")
-	require.InDelta(t, 40, a.EarningsAllTime, 1e-9)
-	require.InDelta(t, 25, a.PaidTotal, 1e-9)
-	require.InDelta(t, 15, a.Unpaid, 1e-9)
+	require.InDelta(t, 9, a.PaidCost, 1e-9)
+	require.InDelta(t, 12, a.GiftCost, 1e-9)
+	require.InDelta(t, 4, a.Earnings, 1e-9)
+	require.InDelta(t, 5, a.GiftAccountCost, 1e-9)
+	require.InDelta(t, 15, a.Unpaid, 1e-9, "unpaid = all-time earnings − payouts; gift-funded account cost is never payable")
 
 	b := report.Items[1]
-	require.InDelta(t, 8*0.75, b.Earnings, 1e-9)
-	require.InDelta(t, 16*0.75, b.EarningsAllTime, 1e-9)
-	require.InDelta(t, 12-2, b.Unpaid, 1e-9)
+	require.Equal(t, int64(1), b.PendingRequests)
+	require.InDelta(t, 4, b.PendingAccountCost, 1e-9)
+	require.InDelta(t, 10, b.Unpaid, 1e-9)
 
 	idle := report.Items[2]
 	require.Equal(t, int64(30), idle.OwnerUserID)
@@ -162,11 +174,16 @@ func TestOwnerSettlementReportAppliesPaidShare(t *testing.T) {
 	require.Zero(t, idle.Unpaid)
 
 	tot := report.Totals
+	require.Equal(t, int64(3), tot.ActiveAccounts)
 	require.Equal(t, int64(7), tot.Requests)
 	require.InDelta(t, 38, tot.OfficialCost, 1e-9)
 	require.InDelta(t, 41, tot.UserBilled, 1e-9)
+	require.InDelta(t, 19, tot.PaidCost, 1e-9)
+	require.InDelta(t, 17, tot.GiftCost, 1e-9)
 	require.InDelta(t, 17, tot.AccountCost, 1e-9)
-	require.InDelta(t, 10, tot.Earnings, 1e-9)
+	require.InDelta(t, 7, tot.Earnings, 1e-9)
+	require.InDelta(t, 6, tot.GiftAccountCost, 1e-9)
+	require.Equal(t, int64(1), tot.PendingRequests)
 	require.InDelta(t, 52, tot.EarningsAllTime, 1e-9)
 	require.InDelta(t, 27, tot.PaidTotal, 1e-9)
 	require.InDelta(t, 25, tot.Unpaid, 1e-9)
@@ -177,10 +194,10 @@ func TestOwnerSettlementReportAppliesPaidShare(t *testing.T) {
 // 所有者上下文即使调用管理员报表也被强制限定为本人。
 func TestOwnerSettlementOwnerContextForcesOwnFilter(t *testing.T) {
 	repo := settlementFixture()
-	svc := NewOwnerSettlementService(repo)
+	svc := NewOwnerSettlementService(repo, nil)
 	ctx := adminaccess.WithPrincipal(context.Background(), &adminaccess.Principal{OwnerUserID: 20, Policy: adminaccess.OwnerPolicy()})
 	other := int64(10)
-	report, err := svc.GetOwnerSettlements(ctx, time.Now().Add(-time.Hour), time.Now(), &other)
+	report, err := svc.GetOwnerSettlements(ctx, testPeriod(time.Now().Add(-time.Hour), time.Now()), &other)
 	require.NoError(t, err)
 	require.Len(t, report.Items, 1)
 	require.Equal(t, int64(20), report.Items[0].OwnerUserID)
@@ -188,54 +205,31 @@ func TestOwnerSettlementOwnerContextForcesOwnFilter(t *testing.T) {
 
 func TestOwnerSettlementSelfHidesBillingInternals(t *testing.T) {
 	repo := settlementFixture()
-	svc := NewOwnerSettlementService(repo)
-	me, err := svc.GetMySettlement(context.Background(), 20, time.Now().Add(-time.Hour), time.Now())
+	svc := NewOwnerSettlementService(repo, nil)
+	me, err := svc.GetMySettlement(context.Background(), 20, testPeriod(time.Now().Add(-time.Hour), time.Now()))
 	require.NoError(t, err)
 	require.Equal(t, int64(1), me.Requests)
 	require.InDelta(t, 20, me.OfficialCost, 1e-9)
-	require.InDelta(t, 6, me.Earnings, 1e-9)
+	require.InDelta(t, 3, me.Earnings, 1e-9)
+	require.Equal(t, int64(1), me.PendingRequests)
 	require.InDelta(t, 10, me.Unpaid, 1e-9)
+	require.NotNil(t, me.Ledger)
 
 	raw, err := json.Marshal(me)
 	require.NoError(t, err)
 	var fields map[string]any
 	require.NoError(t, json.Unmarshal(raw, &fields))
-	for _, forbidden := range []string{"user_billed", "account_cost", "email", "username", "owner_user_id", "paid_share", "items"} {
+	for _, forbidden := range []string{"user_billed", "account_cost", "paid_cost", "gift_cost", "gift_account_cost", "email", "username", "owner_user_id", "paid_share", "items"} {
 		require.NotContains(t, fields, forbidden)
 	}
 
-	_, err = svc.GetMySettlement(context.Background(), 0, time.Now().Add(-time.Hour), time.Now())
+	_, err = svc.GetMySettlement(context.Background(), 0, testPeriod(time.Now().Add(-time.Hour), time.Now()))
 	require.Error(t, err)
-}
-
-func TestParseSettlementPeriod(t *testing.T) {
-	loc := time.FixedZone("UTC+8", 8*3600)
-	now := time.Date(2026, 10, 15, 13, 0, 0, 0, loc)
-
-	start, end, err := ParseSettlementPeriod("2026-09-01", "2026-09-30", loc, now)
-	require.NoError(t, err)
-	require.Equal(t, time.Date(2026, 9, 1, 0, 0, 0, 0, loc), start)
-	require.Equal(t, time.Date(2026, 10, 1, 0, 0, 0, 0, loc), end, "end date is inclusive")
-
-	start, end, err = ParseSettlementPeriod("", "", loc, now)
-	require.NoError(t, err)
-	require.Equal(t, time.Date(2026, 10, 1, 0, 0, 0, 0, loc), start, "defaults to month-to-date")
-	require.Equal(t, time.Date(2026, 10, 16, 0, 0, 0, 0, loc), end)
-
-	_, _, err = ParseSettlementPeriod("2025-01-01", "2026-01-01", loc, now)
-	require.NoError(t, err, "366 days allowed")
-	_, _, err = ParseSettlementPeriod("2025-01-01", "2026-01-02", loc, now)
-	require.Error(t, err)
-	_, _, err = ParseSettlementPeriod("2026-09-02", "2026-09-01", loc, now)
-	require.Error(t, err)
-	_, _, err = ParseSettlementPeriod("2026/09/01", "", loc, now)
-	require.Error(t, err)
-	require.Equal(t, 400, infraerrors.Code(err))
 }
 
 func TestOwnerPayoutCreateValidatesAndDeletes(t *testing.T) {
 	repo := settlementFixture()
-	svc := NewOwnerSettlementService(repo)
+	svc := NewOwnerSettlementService(repo, nil)
 	ctx := context.Background()
 	paidAt := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 
@@ -271,7 +265,7 @@ func TestUpdateBalanceRecordSource(t *testing.T) {
 		3: {ID: 3, Type: AdjustmentTypeAdminBalance, UsedBy: &other, Notes: "x", Value: 10},
 		4: {ID: 4, Type: AdjustmentTypeAdminBalance, UsedBy: &user, Notes: "legacy", Value: 10},
 	}}
-	svc := NewOwnerSettlementService(repo)
+	svc := NewOwnerSettlementService(repo, nil)
 	ctx := context.Background()
 
 	rec, err := svc.UpdateBalanceRecordSource(ctx, user, 1, "offline")
@@ -311,9 +305,12 @@ func TestFinanceSummaryBuckets(t *testing.T) {
 			{Kind: CreditKindAffiliate, Count: 1, Positive: 1.5},
 		},
 	}}
-	svc := NewOwnerSettlementService(repo)
-	s, err := svc.GetFinanceSummary(context.Background(), time.Now().Add(-time.Hour), time.Now())
+	svc := NewOwnerSettlementService(repo, nil)
+	repo.consumption = &FinanceConsumption{Requests: 3, UserBilled: 9, PaidCost: 6, GiftCost: 2, PendingRequests: 1, PendingUserBilled: 1}
+	s, err := svc.GetFinanceSummary(context.Background(), testPeriod(time.Now().Add(-time.Hour), time.Now()))
 	require.NoError(t, err)
+	require.Equal(t, *repo.consumption, s.Consumption)
+	require.NotNil(t, s.Ledger)
 	require.Equal(t, int64(3), s.Online.Orders)
 	require.Len(t, s.Online.PayAmounts, 2)
 	require.InDelta(t, 105, s.Online.CreditedUSD, 1e-9)

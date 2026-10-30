@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" data-tour="usage-stats-cards" />
+      <UsageStatsCards :stats="usageStats" :variant="billingVariant" data-tour="usage-stats-cards" />
       <!-- Charts Section -->
       <div class="space-y-4">
         <div class="card p-4">
@@ -56,7 +56,8 @@
             :endpoint-path-stats="endpointPathStats"
             :loading="endpointStatsLoading"
             :show-source-toggle="true"
-            :show-metric-toggle="true"
+            :show-metric-toggle="!isOwner"
+            :show-actual-cost="!isOwner"
             :enable-breakdown="!isOwner"
             :title="t('usage.endpointDistribution')"
             :start-date="startDate"
@@ -131,6 +132,7 @@
             :loading="loading"
             :columns="visibleColumns"
             :show-id-fallback="isOwner"
+            :variant="billingVariant"
             :server-side-sort="true"
             :default-sort-key="'created_at'"
             :default-sort-order="'desc'"
@@ -218,6 +220,8 @@ const authStore = useAuthStore()
 // AI account owner: backend only allows GET /usage + /usage/stats (scoped to own accounts) and
 // rejects user_id/api_key_id params; dashboard/ops/users/cleanup endpoints are forbidden.
 const isOwner = computed(() => authStore.isOwner)
+// owner 只看官方价与收益;不得渲染用户实扣/倍率/账号成本
+const billingVariant = computed<'admin' | 'owner'>(() => (isOwner.value ? 'owner' : 'admin'))
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
 type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
@@ -593,42 +597,62 @@ const exportToExcel = async () => {
   try {
     let p = 1; let total = pagination.total; let exportedCount = 0
     const XLSX = await import('xlsx')
-    const headers = [
-      t('usage.time'), t('admin.usage.user'), t('usage.apiKeyFilter'),
-      t('admin.usage.account'), t('usage.requestedModel'), t('usage.sentUpstreamModel'), t('usage.upstreamResponseModel'), t('usage.upstreamModelMismatch'), t('usage.requestedReasoningEffort'), t('usage.reasoningEffort'), t('admin.usage.group'),
-      t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'),
-      t('usage.type'),
-      t('admin.usage.inputTokens'), t('admin.usage.outputTokens'),
-      t('admin.usage.cacheReadTokens'), t('admin.usage.cacheCreationTokens'),
-      t('admin.usage.inputCost'), t('admin.usage.outputCost'),
-      t('admin.usage.cacheReadCost'), t('admin.usage.cacheCreationCost'),
-      t('usage.rate'), t('usage.accountMultiplier'), t('usage.original'), t('usage.userBilled'), t('usage.accountBilled'),
-      t('usage.firstToken'), t('usage.duration'),
-      t('admin.usage.requestId'), t('admin.usage.upstreamRequestId'), t('usage.userAgent'), t('admin.usage.ipAddress')
+    // 列定义 + 可见口径:owner 行不含 user/api_key/user_agent/ip_address,也不含实扣/倍率/账号成本/拆分
+    type ExportCol = { header: string; value: (log: AdminUsageLog) => unknown; scope?: 'admin' | 'owner' }
+    const pendingLabel = t('admin.usage.splitPending')
+    // 待拆分行导出 pending 标记,不猜数字
+    const splitValue = (log: AdminUsageLog, v: number | null | undefined) =>
+      log.split_pending ? pendingLabel : (v == null ? '' : v.toFixed(6))
+    const exportCols: ExportCol[] = [
+      { header: t('usage.time'), value: (log) => log.created_at },
+      { header: t('admin.usage.user'), value: (log) => log.user?.email || '', scope: 'admin' },
+      { header: t('usage.apiKeyFilter'), value: (log) => log.api_key?.name || '', scope: 'admin' },
+      { header: t('admin.usage.account'), value: (log) => log.account?.name || (isOwner.value && log.account_id ? `#${log.account_id}` : '') },
+      { header: t('usage.requestedModel'), value: (log) => log.model },
+      { header: t('usage.sentUpstreamModel'), value: (log) => log.upstream_model || log.model },
+      { header: t('usage.upstreamResponseModel'), value: (log) => log.upstream_response_model || '' },
+      { header: t('usage.upstreamModelMismatch'), value: (log) => log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no') },
+      { header: t('usage.requestedReasoningEffort'), value: (log) => formatReasoningEffort(log.reasoning_effort) },
+      { header: t('usage.reasoningEffort'), value: (log) => formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort) },
+      { header: t('admin.usage.group'), value: (log) => log.group?.name || (isOwner.value && log.group_id ? `#${log.group_id}` : '') },
+      { header: t('usage.inboundEndpoint'), value: (log) => log.inbound_endpoint || '' },
+      { header: t('usage.upstreamEndpoint'), value: (log) => log.upstream_endpoint || '' },
+      { header: t('usage.type'), value: (log) => getRequestTypeLabel(log) },
+      { header: t('admin.usage.inputTokens'), value: (log) => log.input_tokens },
+      { header: t('admin.usage.outputTokens'), value: (log) => log.output_tokens },
+      { header: t('admin.usage.cacheReadTokens'), value: (log) => log.cache_read_tokens },
+      { header: t('admin.usage.cacheCreationTokens'), value: (log) => log.cache_creation_tokens },
+      { header: t('admin.usage.inputCost'), value: (log) => log.input_cost?.toFixed(6) || '0.000000' },
+      { header: t('admin.usage.outputCost'), value: (log) => log.output_cost?.toFixed(6) || '0.000000' },
+      { header: t('admin.usage.cacheReadCost'), value: (log) => log.cache_read_cost?.toFixed(6) || '0.000000' },
+      { header: t('admin.usage.cacheCreationCost'), value: (log) => log.cache_creation_cost?.toFixed(6) || '0.000000' },
+      { header: t('usage.rate'), value: (log) => log.rate_multiplier?.toPrecision(4) || '1.00', scope: 'admin' },
+      { header: t('usage.accountMultiplier'), value: (log) => (log.account_rate_multiplier ?? 1).toPrecision(4), scope: 'admin' },
+      { header: t('usage.original'), value: (log) => log.total_cost?.toFixed(6) || '0.000000' },
+      { header: t('usage.userBilled'), value: (log) => log.actual_cost?.toFixed(6) || '0.000000', scope: 'admin' },
+      { header: t('admin.usage.paidPortion'), value: (log) => splitValue(log, log.paid_cost), scope: 'admin' },
+      { header: t('admin.usage.giftPortion'), value: (log) => splitValue(log, log.gift_cost), scope: 'admin' },
+      { header: t('usage.accountBilled'), value: (log) => ((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(6), scope: 'admin' },
+      { header: t('admin.usage.ownerPayable'), value: (log) => splitValue(log, log.earnings), scope: 'admin' },
+      { header: t('admin.usage.giftAccountCostRef'), value: (log) => splitValue(log, log.gift_account_cost), scope: 'admin' },
+      { header: t('admin.usage.earnings'), value: (log) => splitValue(log, log.earnings), scope: 'owner' },
+      { header: t('usage.firstToken'), value: (log) => log.first_token_ms ?? '' },
+      { header: t('usage.duration'), value: (log) => log.duration_ms },
+      { header: t('admin.usage.requestId'), value: (log) => log.request_id || '' },
+      { header: t('admin.usage.upstreamRequestId'), value: (log) => log.upstream_request_id || '' },
+      { header: t('usage.userAgent'), value: (log) => log.user_agent || '', scope: 'admin' },
+      { header: t('admin.usage.ipAddress'), value: (log) => log.ip_address || '', scope: 'admin' },
     ]
-    // owner 行不含 user/api_key/user_agent/ip_address:导出时去掉这些列(按 headers/rows 下标)
-    const ownerOmitCols = isOwner.value ? new Set([1, 2, 31, 32]) : null
-    const keepCols = <T,>(cols: T[]): T[] =>
-      ownerOmitCols ? cols.filter((_, i) => !ownerOmitCols.has(i)) : cols
-    const ws = XLSX.utils.aoa_to_sheet([keepCols(headers)])
+    const viewerScope = isOwner.value ? 'owner' : 'admin'
+    const cols = exportCols.filter((col) => !col.scope || col.scope === viewerScope)
+    const ws = XLSX.utils.aoa_to_sheet([cols.map((col) => col.header)])
     while (true) {
       const res = await adminUsageAPI.list(
         buildUsageListParams(p, 100, true),
         { signal: c.signal }
       )
       if (c.signal.aborted) break; if (p === 1) { total = res.total; exportProgress.total = total }
-      const rows = (res.items || []).map((log: AdminUsageLog) => keepCols([
-        log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || (isOwner.value && log.account_id ? `#${log.account_id}` : ''), log.model,
-        log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || (isOwner.value && log.group_id ? `#${log.group_id}` : ''),
-        log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
-        log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
-        log.input_cost?.toFixed(6) || '0.000000', log.output_cost?.toFixed(6) || '0.000000',
-        log.cache_read_cost?.toFixed(6) || '0.000000', log.cache_creation_cost?.toFixed(6) || '0.000000',
-        log.rate_multiplier?.toPrecision(4) || '1.00', (log.account_rate_multiplier ?? 1).toPrecision(4),
-        log.total_cost?.toFixed(6) || '0.000000', log.actual_cost?.toFixed(6) || '0.000000',
-        ((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(6), log.first_token_ms ?? '', log.duration_ms,
-        log.request_id || '', log.upstream_request_id || '', log.user_agent || '', log.ip_address || ''
-      ]))
+      const rows = (res.items || []).map((log: AdminUsageLog) => cols.map((col) => col.value(log)))
       if (rows.length) {
         XLSX.utils.sheet_add_aoa(ws, rows, { origin: -1 })
       }
@@ -670,6 +694,7 @@ const allColumns = computed(() => [
   { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
+  { key: 'earnings', label: isOwner.value ? t('admin.usage.earnings') : t('admin.usage.ownerPayable'), sortable: false },
   { key: 'latency', label: t('usage.latency'), sortable: false },
   { key: 'created_at', label: t('usage.time'), sortable: true },
   { key: 'request_id', label: t('admin.usage.requestId'), sortable: false },

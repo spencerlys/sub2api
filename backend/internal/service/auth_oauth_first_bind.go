@@ -81,6 +81,19 @@ ON CONFLICT (user_id, provider_type, grant_reason) DO NOTHING`,
 		if err := client.User.UpdateOneID(userID).AddBalance(providerDefaults.Balance).Exec(ctx); err != nil {
 			return fmt.Errorf("apply first bind balance default: %w", err)
 		}
+		// 与余额变更同一事务记录赠送来源，供成本账本识别（只记正数赠送）。
+		if providerDefaults.Balance > 0 {
+			rec, err := newGiftBalanceRecord(userID, providerDefaults.Balance, FirstBindBonusNotes)
+			if err != nil {
+				return fmt.Errorf("record first bind balance default: %w", err)
+			}
+			if err := client.RedeemCode.Create().
+				SetCode(rec.Code).SetType(rec.Type).SetValue(rec.Value).SetStatus(rec.Status).
+				SetNotes(rec.Notes).SetUsedBy(userID).SetUsedAt(*rec.UsedAt).
+				Exec(ctx); err != nil {
+				return fmt.Errorf("record first bind balance default: %w", err)
+			}
+		}
 	}
 	if providerDefaults.Concurrency != 0 {
 		if err := client.User.UpdateOneID(userID).AddConcurrency(providerDefaults.Concurrency).Exec(ctx); err != nil {

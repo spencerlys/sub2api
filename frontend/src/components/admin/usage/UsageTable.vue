@@ -211,7 +211,9 @@
         <template #cell-cost="{ row }">
           <div class="text-sm">
             <div class="flex items-center gap-1.5">
-              <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
+              <!-- owner 行不含 actual_cost/倍率:只展示官方标价 -->
+              <span v-if="variant === 'owner'" data-testid="usage-cost-official" class="font-medium text-gray-900 dark:text-white">${{ row.total_cost?.toFixed(6) || '0.000000' }}</span>
+              <span v-else data-testid="usage-cost-charged" class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
               <span
                 v-if="row.long_context_billing_applied"
                 data-testid="long-context-billing-marker"
@@ -229,10 +231,26 @@
                 </div>
               </div>
             </div>
-            <div v-if="showAccountBilling && row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
-              A ${{ accountBilled(row).toFixed(6) }}
-            </div>
+            <template v-if="variant !== 'owner'">
+              <div data-testid="usage-cost-standard" class="mt-0.5 text-[11px] tabular-nums text-gray-500 dark:text-gray-400">{{ t('usage.officialCost') }} ${{ row.total_cost?.toFixed(6) || '0.000000' }} · {{ formatMultiplier(row.rate_multiplier ?? 1) }}x</div>
+            </template>
+            <template v-if="variant === 'admin'">
+              <div v-if="row.split_pending" class="mt-0.5">
+                <span data-testid="usage-split-pending" :title="t('admin.usage.splitPendingHint')" :class="SPLIT_PENDING_BADGE_CLASS">{{ t('admin.usage.splitPending') }}</span>
+              </div>
+              <div v-else-if="row.paid_cost != null || row.gift_cost != null" data-testid="usage-cost-split" class="mt-0.5 text-[11px] tabular-nums text-gray-500 dark:text-gray-400">{{ t('admin.usage.paidPortion') }} ${{ (row.paid_cost ?? 0).toFixed(6) }} · {{ t('admin.usage.giftPortion') }} ${{ (row.gift_cost ?? 0).toFixed(6) }}</div>
+              <div v-if="accountBillingVisible && row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
+                A ${{ accountBilled(row).toFixed(6) }}
+              </div>
+            </template>
           </div>
+        </template>
+
+        <!-- 号主应付(admin) / 收益(owner):待拆分行显示 pending,绝不估算 -->
+        <template #cell-earnings="{ row }">
+          <span v-if="row.split_pending" data-testid="usage-split-pending" :title="t('admin.usage.splitPendingHint')" :class="SPLIT_PENDING_BADGE_CLASS">{{ t('admin.usage.splitPending') }}</span>
+          <span v-else-if="row.earnings != null" data-testid="usage-earnings" class="text-sm font-medium tabular-nums text-emerald-600 dark:text-emerald-400">${{ row.earnings.toFixed(6) }}</span>
+          <span v-else data-testid="usage-earnings-empty" class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
 
         <!-- 合并首字/总耗时的健康度列：左侧色条上端随首字档、下端随总耗时档，中段(40%-60%)短渐变过渡，便于纵向扫视整体健康状况 -->
@@ -501,7 +519,7 @@
             <span class="text-gray-400">{{ t('usage.serviceTier') }}</span>
             <span class="font-semibold text-cyan-300">{{ getUsageServiceTierLabel(tooltipData?.service_tier, t) }}</span>
           </div>
-          <div class="flex items-center justify-between gap-6">
+          <div v-if="variant !== 'owner'" class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.rate') }}</span>
             <span class="font-semibold text-blue-400">{{ formatMultiplier(tooltipData?.rate_multiplier ?? 1) }}x</span>
           </div>
@@ -509,12 +527,29 @@
             <span class="text-gray-400">{{ t('usage.original') }}</span>
             <span class="font-medium text-white">${{ tooltipData?.total_cost?.toFixed(8) || '0.00000000' }}</span>
           </div>
-          <div class="flex items-center justify-between gap-6">
+          <div v-if="variant !== 'owner'" class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.userBilled') }}</span>
             <span class="font-semibold text-green-400">${{ tooltipData?.actual_cost?.toFixed(8) || '0.00000000' }}</span>
           </div>
+          <!-- 应收拆分:现金 / 赠送(仅管理员) -->
+          <template v-if="variant === 'admin'">
+            <div v-if="tooltipData?.split_pending" class="flex items-center justify-between gap-6">
+              <span class="text-gray-400">{{ t('admin.usage.paidPortion') }} / {{ t('admin.usage.giftPortion') }}</span>
+              <span class="font-semibold text-amber-300">{{ t('admin.usage.splitPending') }}</span>
+            </div>
+            <template v-else-if="tooltipData?.paid_cost != null || tooltipData?.gift_cost != null">
+              <div class="flex items-center justify-between gap-6">
+                <span class="text-gray-400">{{ t('admin.usage.paidPortion') }}</span>
+                <span class="font-medium text-white">${{ (tooltipData?.paid_cost ?? 0).toFixed(8) }}</span>
+              </div>
+              <div class="flex items-center justify-between gap-6">
+                <span class="text-gray-400">{{ t('admin.usage.giftPortion') }}</span>
+                <span class="font-medium text-white">${{ (tooltipData?.gift_cost ?? 0).toFixed(8) }}</span>
+              </div>
+            </template>
+          </template>
           <!-- Account billing (separated from user billing) -->
-          <template v-if="showAccountBilling">
+          <template v-if="accountBillingVisible">
             <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
               <span class="text-gray-400">{{ t('usage.accountMultiplier') }}</span>
               <span class="font-semibold text-blue-400">{{ formatMultiplier(tooltipData?.account_rate_multiplier ?? 1) }}x</span>
@@ -528,6 +563,14 @@
                   account_rate_multiplier: tooltipData?.account_rate_multiplier,
                 }).toFixed(8) }}
               </span>
+            </div>
+            <div v-if="!tooltipData?.split_pending && tooltipData?.earnings != null" class="flex items-center justify-between gap-6">
+              <span class="text-gray-400">{{ t('admin.usage.ownerPayable') }}</span>
+              <span class="font-semibold text-emerald-400">${{ tooltipData.earnings.toFixed(8) }}</span>
+            </div>
+            <div v-if="!tooltipData?.split_pending && tooltipData?.gift_account_cost != null" class="flex items-center justify-between gap-6">
+              <span class="text-gray-400">{{ t('admin.usage.giftAccountCostRef') }}</span>
+              <span class="font-medium text-gray-300">${{ tooltipData.gift_account_cost.toFixed(8) }}</span>
             </div>
           </template>
         </div>
@@ -606,6 +649,11 @@ interface Props {
   flat?: boolean
   /** 行内缺少嵌套 account/group 对象时(owner 视图)回退显示 #id */
   showIdFallback?: boolean
+  /**
+   * 计费展示口径:admin 应收/现金+赠送/账号成本/号主应付;
+   * owner 仅官方价与收益(不渲染实扣/倍率/账号成本);user 官方价/倍率/实扣
+   */
+  variant?: 'admin' | 'owner' | 'user'
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -616,7 +664,8 @@ const props = withDefaults(defineProps<Props>(), {
   showAccountBilling: true,
   showUpstreamEndpoint: true,
   flat: false,
-  showIdFallback: false
+  showIdFallback: false,
+  variant: 'admin'
 })
 const emit = defineEmits<{
   userClick: [userID: number, email?: string]
@@ -626,7 +675,10 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 const copiedRequestId = ref<string | null>(null)
-const showAccountBilling = props.showAccountBilling
+const variant = computed(() => props.variant)
+// 账号成本仅管理员可见:owner/user 口径一律不渲染,即使行里带了相关字段
+const accountBillingVisible = computed(() => props.variant === 'admin' && props.showAccountBilling)
+const SPLIT_PENDING_BADGE_CLASS = 'inline-flex items-center rounded px-1 py-px text-[10px] font-semibold leading-tight bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-500/30'
 const showUpstreamEndpoint = props.showUpstreamEndpoint
 const ipGeoBatchLoading = ref(false)
 

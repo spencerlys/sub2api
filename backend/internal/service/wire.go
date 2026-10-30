@@ -893,6 +893,7 @@ var ProviderSet = wire.NewSet(
 	ProvideClaudeResetCreditService,
 	NewAccountHealthService,
 	NewOwnerSettlementService,
+	ProvideUsageCostLedgerService,
 	ProvideOpenAIOAuthService,
 	ProvideGrokOAuthService,
 	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
@@ -1025,6 +1026,15 @@ func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, 
 // ProvidePaymentOrderExpiryService creates and starts PaymentOrderExpiryService.
 func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache LeaderLockCache, db *sql.DB) *PaymentOrderExpiryService {
 	svc := NewPaymentOrderExpiryService(paymentSvc, 60*time.Second)
+	svc.SetLeaderLock(lockCache, db)
+	svc.Start()
+	return svc
+}
+
+// ProvideUsageCostLedgerService creates and starts the per-request gift/paid cost
+// ledger job (every minute, leader-locked like PaymentOrderExpiryService).
+func ProvideUsageCostLedgerService(repo UsageCostLedgerRepository, lockCache LeaderLockCache, db *sql.DB) *UsageCostLedgerService {
+	svc := NewUsageCostLedgerService(repo, time.Minute)
 	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
 	return svc

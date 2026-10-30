@@ -131,8 +131,12 @@ export type {
   AccountHealthErrorCategory
 } from './accountHealth'
 export type {
-  FinanceDateRange,
+  FinanceConsumption,
+  FinanceRange,
+  FinanceRangeKind,
   FinanceSummary,
+  FinanceWindow,
+  LedgerStatus,
   MyOwnerSettlement,
   OwnerPayout,
   OwnerSettlementRow,

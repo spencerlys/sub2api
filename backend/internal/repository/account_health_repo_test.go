@@ -24,6 +24,8 @@ func TestAccountHealthQueriesExcludeIdentityAndContent(t *testing.T) {
 		require.Contains(t, q, "GROUP BY account_id", name)
 	}
 	require.Contains(t, accountHealthUsageQuery, "FILTER (WHERE stream AND first_token_ms IS NOT NULL)")
+	// 拆分只按主键关联且只暴露金额列。
+	require.Contains(t, accountHealthUsageQuery, "WHERE s.usage_log_id = usage_logs.id")
 }
 
 func TestAccountHealthAggregatesScanRows(t *testing.T) {
@@ -37,8 +39,9 @@ func TestAccountHealthAggregatesScanRows(t *testing.T) {
 
 	mock.ExpectQuery(regexp.QuoteMeta(accountHealthUsageQuery)).
 		WithArgs(sqlmock.AnyArg(), start, end).
-		WillReturnRows(sqlmock.NewRows([]string{"account_id", "requests_ok", "tokens_in", "tokens_out", "tokens_cache", "cost", "ttft_p50", "ttft_p95", "duration_p50", "last_success_at"}).
-			AddRow(int64(1), int64(4), int64(10), int64(20), int64(30), 1.25, 300.4, 899.6, nil, at))
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "requests_ok", "tokens_in", "tokens_out", "tokens_cache", "cost", "ttft_p50", "ttft_p95", "duration_p50", "last_success_at",
+			"official_cost", "account_cost", "earnings", "pending_requests"}).
+			AddRow(int64(1), int64(4), int64(10), int64(20), int64(30), 1.25, 300.4, 899.6, nil, at, 2.5, 1.0, 0.6, int64(1)))
 	usage, err := repo.AggregateAccountHealthUsage(context.Background(), []int64{1, 2}, start, end)
 	require.NoError(t, err)
 	require.Len(t, usage, 1)
@@ -47,6 +50,10 @@ func TestAccountHealthAggregatesScanRows(t *testing.T) {
 	require.Equal(t, 900, *usage[1].TTFTP95Ms)
 	require.Nil(t, usage[1].DurationP50Ms)
 	require.True(t, usage[1].LastSuccessAt.Equal(at))
+	require.InDelta(t, 2.5, usage[1].OfficialCost, 1e-12)
+	require.InDelta(t, 1.0, usage[1].AccountCost, 1e-12)
+	require.InDelta(t, 0.6, usage[1].Earnings, 1e-12)
+	require.EqualValues(t, 1, usage[1].PendingRequests)
 
 	mock.ExpectQuery(regexp.QuoteMeta(accountHealthErrorsQuery)).
 		WithArgs(sqlmock.AnyArg(), start, end).

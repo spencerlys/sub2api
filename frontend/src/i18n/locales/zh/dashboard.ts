@@ -420,6 +420,8 @@ export default {
     resetNow: '现在',
     resetPending: '待刷新',
     accountMultiplier: '账号倍率',
+    officialCost: '官方价',
+    discountRate: '折扣倍率',
     avgDuration: '平均耗时',
     inSelectedRange: '所选范围内',
     perRequest: '每次请求',

@@ -17,9 +17,22 @@ export interface AdminUsageStatsResponse {
   total_cache_creation_tokens: number
   total_cache_read_tokens: number
   total_tokens: number
+  /** 官方标价(standard) */
   total_cost: number
-  total_actual_cost: number
-  total_account_cost: number
+  /** 应收(用户实扣);owner 调用方不返回 */
+  total_actual_cost?: number
+  /** 账号成本;owner 调用方不返回 */
+  total_account_cost?: number
+  /** 应收中的现金部分;owner 调用方不返回 */
+  total_paid_cost?: number
+  /** 应收中的赠送额度部分;owner 调用方不返回 */
+  total_gift_cost?: number
+  /** 号主应付(owner 视角即收益,不含赠送部分),仅统计有号主的账号 */
+  total_earnings?: number
+  /** 赠送额度对应的账号成本(参考),仅统计有号主的账号;owner 调用方不返回 */
+  total_gift_account_cost?: number
+  /** 尚未完成现金/赠送拆分的请求数 */
+  pending_requests?: number
   average_duration_ms: number
   endpoints?: EndpointStat[]
   upstream_endpoints?: EndpointStat[]

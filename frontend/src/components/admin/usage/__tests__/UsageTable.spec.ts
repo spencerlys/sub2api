@@ -53,6 +53,14 @@ const messages: Record<string, string> = {
   'usage.original': 'Original',
   'usage.userBilled': 'User billed',
   'usage.accountBilled': 'Account billed',
+  'usage.officialCost': 'Official price',
+  'admin.usage.paidPortion': 'Paid',
+  'admin.usage.giftPortion': 'Gift',
+  'admin.usage.splitPending': 'Pending',
+  'admin.usage.splitPendingHint': 'Paid/gift split not processed yet',
+  'admin.usage.ownerPayable': 'Owner payable',
+  'admin.usage.earnings': 'Earnings',
+  'admin.usage.giftAccountCostRef': 'Gift-funded cost (ref.)',
   'usage.imageUnit': ' images',
   'usage.imageCount': 'Image count',
   'usage.imageBillingSize': 'Billing size',
@@ -109,6 +117,7 @@ const DataTableStub = {
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-latency" :row="row" />
         <slot name="cell-cost" :row="row" />
+        <slot name="cell-earnings" :row="row" />
         <slot name="cell-request_id" :row="row" />
         <slot name="cell-upstream_request_id" :row="row" />
       </div>
@@ -912,5 +921,137 @@ describe('admin UsageTable deleted-user badge', () => {
 
     expect(wrapper.text()).not.toContain('Deleted')
     expect(wrapper.text()).toContain('active@test.com')
+  })
+})
+
+describe('UsageTable billing variants', () => {
+  const billedRow = {
+    request_id: 'req-billing-1',
+    model: 'claude-sonnet-4-5',
+    total_cost: 0.0125,
+    rate_multiplier: 0.8,
+    actual_cost: 0.01,
+    account_rate_multiplier: 0.5,
+    account_stats_cost: null,
+    paid_cost: 0.0075,
+    gift_cost: 0.0025,
+    earnings: 0.004688,
+    gift_account_cost: 0.001563,
+    split_pending: false,
+    service_tier: null,
+    input_cost: 0.0045,
+    output_cost: 0.008,
+    cache_creation_cost: 0,
+    cache_read_cost: 0,
+    input_tokens: 1000,
+    output_tokens: 500,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    billing_mode: 'token',
+  }
+
+  const mountTable = (rows: Record<string, unknown>[], extraProps: Record<string, unknown> = {}) =>
+    mount(UsageTable, {
+      props: { data: rows as any, loading: false, columns: [], ...extraProps },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+
+  const openCostTooltip = async (wrapper: ReturnType<typeof mountTable>) => {
+    const triggers = wrapper.findAll('.group.relative')
+    await triggers[triggers.length - 1].trigger('mouseenter')
+    await nextTick()
+  }
+
+  it('admin rows show receivable, official price, discount, paid/gift split and owner payable', async () => {
+    const wrapper = mountTable([billedRow], { variant: 'admin' })
+
+    expect(wrapper.get('[data-testid="usage-cost-charged"]').text()).toBe('$0.010000')
+    expect(wrapper.get('[data-testid="usage-cost-standard"]').text()).toBe('Official price $0.012500 · 0.80x')
+    expect(wrapper.get('[data-testid="usage-cost-split"]').text()).toBe('Paid $0.007500 · Gift $0.002500')
+    expect(wrapper.get('[data-testid="usage-earnings"]').text()).toBe('$0.004688')
+    expect(wrapper.find('[data-testid="usage-split-pending"]').exists()).toBe(false)
+
+    await openCostTooltip(wrapper)
+    const tooltip = wrapper.get('.fixed').text()
+    expect(tooltip).toContain('Paid')
+    expect(tooltip).toContain('$0.00750000')
+    expect(tooltip).toContain('Gift')
+    expect(tooltip).toContain('$0.00250000')
+    expect(tooltip).toContain('Owner payable')
+    expect(tooltip).toContain('$0.00468800')
+    expect(tooltip).toContain('Gift-funded cost (ref.)')
+    expect(tooltip).toContain('$0.00156300')
+  })
+
+  it('pending admin rows show a pending badge instead of split numbers', async () => {
+    const wrapper = mountTable([{
+      ...billedRow, split_pending: true, paid_cost: null, gift_cost: null, earnings: null, gift_account_cost: null,
+    }], { variant: 'admin' })
+
+    expect(wrapper.find('[data-testid="usage-cost-split"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="usage-earnings"]').exists()).toBe(false)
+    const badges = wrapper.findAll('[data-testid="usage-split-pending"]')
+    expect(badges.length).toBe(2) // cost cell + earnings cell
+    badges.forEach((badge) => expect(badge.text()).toBe('Pending'))
+
+    await openCostTooltip(wrapper)
+    const tooltip = wrapper.get('.fixed').text()
+    expect(tooltip).toContain('Pending')
+    expect(tooltip).not.toContain('Owner payable')
+  })
+
+  it('admin rows without an owner show a dash in the earnings cell', () => {
+    const wrapper = mountTable([{ ...billedRow, earnings: null }], { variant: 'admin' })
+    expect(wrapper.find('[data-testid="usage-earnings"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="usage-earnings-empty"]').text()).toBe('-')
+  })
+
+  it('owner rows show official cost and earnings but never billed amounts or multipliers', async () => {
+    // backend strips these for owners; the UI must not render them even if they leak through
+    const wrapper = mountTable([billedRow], { variant: 'owner', showIdFallback: true })
+
+    expect(wrapper.get('[data-testid="usage-cost-official"]').text()).toBe('$0.012500')
+    expect(wrapper.get('[data-testid="usage-earnings"]').text()).toBe('$0.004688')
+    for (const id of ['usage-cost-charged', 'usage-cost-standard', 'usage-cost-split']) {
+      expect(wrapper.find(`[data-testid="${id}"]`).exists()).toBe(false)
+    }
+    expect(wrapper.text()).not.toContain('$0.010000') // actual_cost
+    expect(wrapper.text()).not.toContain('A $')
+
+    await openCostTooltip(wrapper)
+    const tooltip = wrapper.get('.fixed').text()
+    expect(tooltip).toContain('Original')
+    expect(tooltip).toContain('$0.01250000')
+    for (const hidden of ['Rate', 'User billed', 'Account rate', 'Account billed', 'Paid', 'Gift', 'Owner payable', '$0.01000000', '0.80x', '0.50x']) {
+      expect(tooltip).not.toContain(hidden)
+    }
+  })
+
+  it('pending owner rows show a pending badge in the earnings cell', () => {
+    const wrapper = mountTable([{ ...billedRow, split_pending: true, earnings: null }], { variant: 'owner' })
+    expect(wrapper.get('[data-testid="usage-split-pending"]').text()).toBe('Pending')
+    expect(wrapper.find('[data-testid="usage-earnings"]').exists()).toBe(false)
+  })
+
+  it('user rows show charged amount, official price and discount without split or account cost', async () => {
+    const userRow = {
+      ...billedRow,
+      paid_cost: undefined, gift_cost: undefined, earnings: undefined, gift_account_cost: undefined,
+      split_pending: undefined, account_rate_multiplier: undefined, account_stats_cost: undefined,
+    }
+    const wrapper = mountTable([userRow], { variant: 'user', showAccountBilling: false })
+
+    expect(wrapper.get('[data-testid="usage-cost-charged"]').text()).toBe('$0.010000')
+    expect(wrapper.get('[data-testid="usage-cost-standard"]').text()).toBe('Official price $0.012500 · 0.80x')
+    expect(wrapper.find('[data-testid="usage-cost-split"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="usage-split-pending"]').exists()).toBe(false)
+
+    await openCostTooltip(wrapper)
+    const tooltip = wrapper.get('.fixed').text()
+    expect(tooltip).toContain('Rate')
+    expect(tooltip).toContain('0.80x')
+    expect(tooltip).toContain('$0.01000000')
+    expect(tooltip).not.toContain('Account billed')
+    expect(tooltip).not.toContain('Paid')
   })
 })

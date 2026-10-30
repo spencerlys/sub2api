@@ -1,0 +1,117 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, mount } from '@vue/test-utils'
+
+vi.mock('vue-i18n', async () => {
+  const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
+  return {
+    ...actual,
+    useI18n: () => ({
+      t: (key: string, params?: Record<string, unknown>) => (params ? `${key} ${JSON.stringify(params)}` : key)
+    })
+  }
+})
+
+import OwnerSettlementTable from '../OwnerSettlementTable.vue'
+import type { OwnerSettlementRow, OwnerSettlementTotals } from '@/api/admin/finance'
+
+enableAutoUnmount(afterEach)
+
+const totals: OwnerSettlementTotals = {
+  active_accounts: 3,
+  requests: 900,
+  official_cost: 200,
+  user_billed: 150,
+  paid_cost: 100,
+  gift_cost: 50,
+  account_cost: 120,
+  earnings: 80,
+  gift_account_cost: 40,
+  pending_requests: 0,
+  pending_account_cost: 0,
+  earnings_all_time: 400,
+  paid_total: 300,
+  unpaid: 100
+}
+
+function row(overrides: Partial<OwnerSettlementRow> = {}): OwnerSettlementRow {
+  return { ...totals, owner_user_id: 3, email: 'owner-a@example.com', username: 'alice', ...overrides }
+}
+
+const COLUMNS = [
+  'active_accounts',
+  'requests',
+  'official_cost',
+  'user_billed',
+  'paid_cost',
+  'gift_cost',
+  'account_cost',
+  'earnings',
+  'gift_account_cost',
+  'earnings_all_time',
+  'paid_total',
+  'unpaid'
+]
+
+describe('OwnerSettlementTable', () => {
+  it('shows every settlement column with precise amounts and a totals row', () => {
+    const wrapper = mount(OwnerSettlementTable, {
+      props: { items: [row({ official_cost: 0.012345, earnings: 0.5 })], totals }
+    })
+
+    for (const key of COLUMNS) expect(wrapper.find(`[data-testid="settlement-col-${key}"]`).exists()).toBe(true)
+
+    const r = wrapper.get('[data-testid="settlement-row-3"]')
+    expect(r.text()).toContain('owner-a@example.com')
+    expect(r.text()).toContain('alice')
+    expect(r.get('[data-testid="settlement-cell-active_accounts"]').text()).toBe('3')
+    expect(r.get('[data-testid="settlement-cell-official_cost"]').text()).toBe('$0.012345')
+    expect(r.get('[data-testid="settlement-cell-user_billed"]').text()).toBe('$150.00')
+    expect(r.get('[data-testid="settlement-cell-paid_cost"]').text()).toBe('$100.00')
+    expect(r.get('[data-testid="settlement-cell-gift_cost"]').text()).toBe('$50.0000')
+    expect(r.get('[data-testid="settlement-cell-earnings"]').text()).toBe('$0.500000')
+    expect(r.get('[data-testid="settlement-cell-unpaid"]').text()).toBe('$100.00')
+
+    const foot = wrapper.get('[data-testid="settlement-totals"]')
+    expect(foot.text()).toContain('admin.finance.settlement.totals')
+    expect(foot.get('[data-testid="settlement-cell-requests"]').text()).toBe('900')
+    expect(foot.get('[data-testid="settlement-cell-earnings"]').text()).toBe('$80.0000')
+  })
+
+  it('labels gift-funded account cost as reference only and never folds it into payable', () => {
+    const wrapper = mount(OwnerSettlementTable, { props: { items: [row()], totals } })
+
+    const header = wrapper.get('[data-testid="settlement-col-gift_account_cost"]')
+    expect(header.text()).toContain('admin.finance.settlement.giftAccountCost')
+    expect(header.text()).toContain('admin.finance.settlement.referenceOnly')
+    expect(header.attributes('data-reference')).toBe('true')
+
+    const cell = wrapper.get('[data-testid="settlement-row-3"] [data-testid="settlement-cell-gift_account_cost"]')
+    expect(cell.text()).toBe('$40.0000')
+    expect(cell.classes()).toContain('italic')
+
+    // Payable is exactly `earnings` (80), not earnings + gift_account_cost (120).
+    const payable = wrapper.get('[data-testid="settlement-totals"] [data-testid="settlement-cell-earnings"]')
+    expect(payable.text()).toBe('$80.0000')
+    expect(payable.text()).not.toContain('120')
+  })
+
+  it('flags owners with requests still pending settlement', () => {
+    const wrapper = mount(OwnerSettlementTable, { props: { items: [row({ pending_requests: 12 })], totals } })
+    expect(wrapper.get('[data-testid="settlement-row-3"] [data-testid="settlement-pending"]').text()).toContain('"count":"12"')
+  })
+
+  it('emits record-payout only when the action column is enabled', async () => {
+    const plain = mount(OwnerSettlementTable, { props: { items: [row()], totals } })
+    expect(plain.find('[data-testid="settlement-payout-3"]').exists()).toBe(false)
+
+    const withAction = mount(OwnerSettlementTable, { props: { items: [row()], totals, payoutAction: true } })
+    await withAction.get('[data-testid="settlement-payout-3"]').trigger('click')
+    expect(withAction.emitted('record-payout')?.[0]?.[0]).toMatchObject({ owner_user_id: 3, email: 'owner-a@example.com' })
+  })
+
+  it('shows the empty state without a totals row', () => {
+    const wrapper = mount(OwnerSettlementTable, { props: { items: [], totals } })
+    expect(wrapper.text()).toContain('admin.finance.settlement.empty')
+    expect(wrapper.find('[data-testid="settlement-totals"]').exists()).toBe(false)
+  })
+})

@@ -14,7 +14,9 @@ export default {
       ttft: '首字 p50 / p95',
       duration: '耗时 p50',
       tokens: '输入 / 输出 Token',
-      cost: '费用',
+      billed: '用户计费',
+      officialCost: '官方价',
+      earnings: '应付',
       lastSuccess: '最近成功',
       lastError: '最近错误'
     },
@@ -47,8 +49,12 @@ export default {
       tokensIn: '输入 Token',
       tokensOut: '输出 Token',
       tokensCache: '缓存 Token',
-      cost: '费用'
+      billed: '用户计费',
+      officialCost: '官方价',
+      earnings: '应付'
     },
+    unowned: '无号主',
+    pendingRequests: '{count} 个待结算',
     errorCategory: {
       rate_limit: '限流',
       overloaded: '过载',

@@ -96,8 +96,10 @@ vi.mock('@/stores/app', () => ({
   }),
 }))
 
+const authState = vi.hoisted(() => ({ isOwner: false }))
+
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ isOwner: false }),
+  useAuthStore: () => authState,
 }))
 
 vi.mock('@/utils/format', () => ({
@@ -802,5 +804,162 @@ describe('admin UsageView model audit export', () => {
 		const row = sheetAddAoa.mock.calls[0][1][0]
 		expect(row.slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
 		expect(saveAs).toHaveBeenCalledTimes(1)
+	})
+})
+
+describe('admin UsageView billing visibility', () => {
+	const exportRow = {
+		id: 7,
+		created_at: '2026-08-04T00:00:00Z',
+		model: 'claude-sonnet-4-5',
+		account_id: 3,
+		group_id: 4,
+		request_type: 'sync',
+		input_tokens: 10,
+		output_tokens: 5,
+		cache_read_tokens: 0,
+		cache_creation_tokens: 0,
+		input_cost: 0.001,
+		output_cost: 0.002,
+		cache_read_cost: 0,
+		cache_creation_cost: 0,
+		total_cost: 0.003,
+		rate_multiplier: 0.9,
+		actual_cost: 0.0027,
+		account_rate_multiplier: 0.5,
+		paid_cost: 0.002,
+		gift_cost: 0.0007,
+		earnings: 0.001111,
+		gift_account_cost: 0.000389,
+		split_pending: false,
+		duration_ms: 10,
+	}
+
+	const CardsStub = { props: ['stats', 'variant'], template: '<div data-test="cards" />' }
+	const TableStub = { props: ['columns', 'variant'], template: '<div data-test="table" />' }
+	const EndpointChartStub = { props: ['showActualCost', 'showMetricToggle'], template: '<div data-test="endpoint-chart" />' }
+
+	const mountView = () => mount(UsageView, {
+		global: { stubs: {
+			AppLayout: AppLayoutStub, UsageStatsCards: CardsStub, UsageFilters: UsageFiltersStub,
+			UsageTable: TableStub, UsageExportProgress: true, UsageCleanupDialog: true,
+			UserBalanceHistoryModal: true, Pagination: true, Select: true,
+			DateRangePicker: true, Icon: true, TokenUsageTrend: true,
+			ModelDistributionChart: true, GroupDistributionChart: true,
+			EndpointDistributionChart: EndpointChartStub, UserTokenRanking: true,
+			OpsErrorDetailModal: true, OpsErrorLogTable: true,
+		} },
+	})
+
+	beforeEach(() => {
+		vi.useFakeTimers()
+		list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
+		exportList.mockReset().mockResolvedValue({ items: [exportRow], total: 1, pages: 1 })
+		getStats.mockReset().mockResolvedValue({
+			total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
+			total_cache_tokens: 0, total_tokens: 0, total_cost: 0, average_duration_ms: 0,
+		})
+		getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
+		getModelStats.mockReset().mockResolvedValue({ models: [] })
+		aoaToSheet.mockClear()
+		sheetAddAoa.mockClear()
+	})
+
+	afterEach(() => {
+		authState.isOwner = false
+		vi.useRealTimers()
+	})
+
+	const exportSheet = async (wrapper: ReturnType<typeof mountView>) => {
+		await (wrapper.vm as any).exportToExcel()
+		await flushPromises()
+		const headers: string[] = aoaToSheet.mock.calls[0][0][0]
+		const row: unknown[] = sheetAddAoa.mock.calls[0][1][0]
+		return Object.fromEntries(headers.map((h, i) => [h, row[i]]))
+	}
+
+	it('passes the admin variant and an owner-payable column for admins', async () => {
+		const wrapper = mountView()
+		vi.advanceTimersByTime(120)
+		await flushPromises()
+
+		expect(wrapper.findComponent(CardsStub).props('variant')).toBe('admin')
+		const table = wrapper.findComponent(TableStub)
+		expect(table.props('variant')).toBe('admin')
+		const earningsCol = table.props('columns').find((c: { key: string }) => c.key === 'earnings')
+		expect(earningsCol?.label).toBe('admin.usage.ownerPayable')
+		expect(wrapper.findComponent(EndpointChartStub).props('showActualCost')).toBe(true)
+	})
+
+	it('exports official, discount, receivable split and owner payable for admins', async () => {
+		const wrapper = mountView()
+		vi.advanceTimersByTime(120)
+		await flushPromises()
+
+		const sheet = await exportSheet(wrapper)
+		expect(sheet['usage.original']).toBe('0.003000')
+		expect(sheet['usage.rate']).toBe('0.9000')
+		expect(sheet['usage.userBilled']).toBe('0.002700')
+		expect(sheet['admin.usage.paidPortion']).toBe('0.002000')
+		expect(sheet['admin.usage.giftPortion']).toBe('0.000700')
+		expect(sheet['usage.accountBilled']).toBe('0.001500')
+		expect(sheet['admin.usage.ownerPayable']).toBe('0.001111')
+		expect(sheet['admin.usage.giftAccountCostRef']).toBe('0.000389')
+	})
+
+	it('marks pending split rows instead of exporting guessed numbers', async () => {
+		exportList.mockResolvedValue({
+			items: [{ ...exportRow, split_pending: true, paid_cost: null, gift_cost: null, earnings: null, gift_account_cost: null }],
+			total: 1, pages: 1,
+		})
+		const wrapper = mountView()
+		vi.advanceTimersByTime(120)
+		await flushPromises()
+
+		const sheet = await exportSheet(wrapper)
+		expect(sheet['admin.usage.paidPortion']).toBe('admin.usage.splitPending')
+		expect(sheet['admin.usage.giftPortion']).toBe('admin.usage.splitPending')
+		expect(sheet['admin.usage.ownerPayable']).toBe('admin.usage.splitPending')
+	})
+
+	it('owners get the owner variant, an earnings column and no billed/multiplier data', async () => {
+		authState.isOwner = true
+		const wrapper = mountView()
+		vi.advanceTimersByTime(120)
+		await flushPromises()
+
+		expect(wrapper.findComponent(CardsStub).props('variant')).toBe('owner')
+		const table = wrapper.findComponent(TableStub)
+		expect(table.props('variant')).toBe('owner')
+		const keys = table.props('columns').map((c: { key: string }) => c.key)
+		expect(keys).toContain('earnings')
+		expect(keys).not.toContain('user')
+		expect(table.props('columns').find((c: { key: string }) => c.key === 'earnings')?.label).toBe('admin.usage.earnings')
+
+		const chart = wrapper.findComponent(EndpointChartStub)
+		expect(chart.props('showActualCost')).toBe(false)
+		expect(chart.props('showMetricToggle')).toBe(false)
+	})
+
+	it('owner export keeps official cost and earnings but drops billed amounts and multipliers', async () => {
+		authState.isOwner = true
+		const wrapper = mountView()
+		vi.advanceTimersByTime(120)
+		await flushPromises()
+
+		const sheet = await exportSheet(wrapper)
+		expect(sheet['usage.original']).toBe('0.003000')
+		expect(sheet['admin.usage.earnings']).toBe('0.001111')
+		for (const hidden of [
+			'usage.rate', 'usage.accountMultiplier', 'usage.userBilled', 'usage.accountBilled',
+			'admin.usage.paidPortion', 'admin.usage.giftPortion', 'admin.usage.ownerPayable', 'admin.usage.giftAccountCostRef',
+			'admin.usage.user', 'usage.apiKeyFilter', 'usage.userAgent', 'admin.usage.ipAddress',
+		]) {
+			expect(sheet).not.toHaveProperty(hidden)
+		}
+		const values = Object.values(sheet).map(String)
+		expect(values).not.toContain('0.002700')
+		expect(values).not.toContain('0.9000')
+		expect(sheet['admin.usage.account']).toBe('#3')
 	})
 })

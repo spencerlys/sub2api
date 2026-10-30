@@ -26,6 +26,12 @@ type UsageHandler struct {
 	apiKeyService  *service.APIKeyService
 	adminService   service.AdminService
 	cleanupService *service.UsageCleanupService
+	costLedger     *service.UsageCostLedgerService
+}
+
+// SetCostLedger 注入成本账本，用于用量明细与统计的实付/赠送拆分及所有者收益（可为 nil）。
+func (h *UsageHandler) SetCostLedger(l *service.UsageCostLedgerService) {
+	h.costLedger = l
 }
 
 // NewUsageHandler creates a new admin usage handler
@@ -216,7 +222,16 @@ func (h *UsageHandler) List(c *gin.Context) {
 		return
 	}
 
-	response.Paginated(c, adminUsageLogResponses(c, records), result.Total, page, pageSize)
+	ids := make([]int64, 0, len(records))
+	for i := range records {
+		ids = append(ids, records[i].ID)
+	}
+	splits, err := h.costLedger.UsageRowSettlements(c.Request.Context(), ids)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Paginated(c, adminUsageLogResponses(c, records, splits), result.Total, page, pageSize)
 }
 
 // Stats handles getting usage statistics with filters
@@ -368,7 +383,7 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	var stats *usagestats.UsageStats
 	// nocache: 绕过缓存直接回源,刷新者本人拿最新;不回写缓存(管理台"我刷新我自己拿最新"语义,非全局失效)。
 	if parseBoolQueryWithDefault(c.Query("nocache"), false) {
-		s, err := h.usageService.GetStatsWithFilters(c.Request.Context(), filters)
+		s, err := h.loadStats(c.Request.Context(), filters)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return
@@ -385,7 +400,23 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		c.Header("X-Usage-Stats-Cache", cacheStatusValue(hit))
 	}
 
+	if adminaccess.OwnerFromContext(c.Request.Context()) != nil {
+		response.Success(c, ownerUsageStatsResponse(stats))
+		return
+	}
 	response.Success(c, stats)
+}
+
+// loadStats 用量统计 + 成本账本拆分汇总（同一筛选条件）。
+func (h *UsageHandler) loadStats(ctx context.Context, filters usagestats.UsageLogFilters) (*usagestats.UsageStats, error) {
+	stats, err := h.usageService.GetStatsWithFilters(ctx, filters)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.costLedger.AttachSplitStats(ctx, stats, filters); err != nil {
+		return nil, err
+	}
+	return stats, nil
 }
 
 // SearchUsers handles searching users by email keyword

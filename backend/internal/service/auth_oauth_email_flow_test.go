@@ -20,10 +20,13 @@ type redeemCodeRepoStub struct {
 		userID int64
 	}
 	updateCalls []*RedeemCode
+	// created 注册赠送留痕（[src:gift] signup bonus）。
+	created []*RedeemCode
 }
 
-func (s *redeemCodeRepoStub) Create(context.Context, *RedeemCode) error {
-	panic("unexpected Create call")
+func (s *redeemCodeRepoStub) Create(_ context.Context, code *RedeemCode) error {
+	s.created = append(s.created, code)
+	return nil
 }
 
 func (s *redeemCodeRepoStub) CreateBatch(context.Context, []RedeemCode) error {
@@ -312,9 +315,10 @@ func TestRegisterOAuthEmailAccountSetsNormalizedSignupSourceOnCreatedUser(t *tes
 			ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
 		},
 	}
+	redeemRepo := &redeemCodeRepoStub{}
 	authService := newOAuthEmailFlowAuthService(
 		userRepo,
-		&redeemCodeRepoStub{},
+		redeemRepo,
 		&refreshTokenCacheStub{},
 		map[string]string{
 			SettingKeyRegistrationEnabled: "true",
@@ -338,6 +342,14 @@ func TestRegisterOAuthEmailAccountSetsNormalizedSignupSourceOnCreatedUser(t *tes
 	require.NotNil(t, user)
 	require.Len(t, userRepo.created, 1)
 	require.Equal(t, "oidc", userRepo.created[0].SignupSource)
+	// OAuth 邮箱注册同样为注册赠送留痕（[src:gift]）。
+	if user.Balance > 0 {
+		require.Len(t, redeemRepo.created, 1)
+		require.Equal(t, SignupBonusNotes, redeemRepo.created[0].Notes)
+		require.InDelta(t, user.Balance, redeemRepo.created[0].Value, 1e-12)
+	} else {
+		require.Empty(t, redeemRepo.created)
+	}
 }
 
 func TestRegisterOAuthEmailAccountKeepsGitHubAndGoogleSignupSource(t *testing.T) {

@@ -88,6 +88,9 @@ type raceSafeRedeemRepo struct {
 	codes map[string]*RedeemCode
 }
 
+// Create 接收注册赠送留痕（[src:gift] signup bonus），与邀请码竞争无关。
+func (s *raceSafeRedeemRepo) Create(context.Context, *RedeemCode) error { return nil }
+
 func (s *raceSafeRedeemRepo) GetByCode(_ context.Context, code string) (*RedeemCode, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

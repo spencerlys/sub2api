@@ -1,5 +1,5 @@
 <template>
-  <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+  <div class="grid grid-cols-2 gap-4" :class="variant === 'user' ? 'lg:grid-cols-4' : 'md:grid-cols-3 xl:grid-cols-5'">
     <div class="card p-4 flex items-center gap-3">
       <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30 text-blue-600">
         <Icon name="document" size="md" />
@@ -8,6 +8,7 @@
         <p class="text-xs font-medium text-gray-500">{{ t('usage.totalRequests') }}</p>
         <p class="text-xl font-bold">{{ stats?.total_requests?.toLocaleString() || '0' }}</p>
         <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
+        <p v-if="variant !== 'user' && pendingRequests > 0" data-testid="stats-pending" class="text-xs text-amber-600 dark:text-amber-400">{{ t('admin.usage.pendingRequests', { count: pendingRequests.toLocaleString() }) }}</p>
       </div>
     </div>
     <div class="card p-4 flex items-center gap-3">
@@ -58,27 +59,72 @@
         </p>
       </div>
     </div>
-    <div class="card p-4 flex items-center gap-3">
-      <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30 text-green-600">
-        <Icon name="dollar" size="md" />
+    <!-- owner:只看官方标价消耗与自己的收益(不含赠送),绝不展示用户实扣/倍率/账号成本 -->
+    <template v-if="variant === 'owner'">
+      <div class="card p-4 flex items-center gap-3">
+        <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30 text-green-600">
+          <Icon name="dollar" size="md" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-medium text-gray-500">{{ t('admin.usage.officialCostTotal') }}</p>
+          <p class="text-xl font-bold text-green-600" data-testid="stats-official-cost">${{ (stats?.total_cost || 0).toFixed(4) }}</p>
+          <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
+        </div>
       </div>
-      <div class="min-w-0 flex-1">
-        <p class="text-xs font-medium text-gray-500">{{ t('usage.totalCost') }}</p>
-        <p class="text-xl font-bold text-green-600">
-          ${{ (stats?.total_actual_cost || 0).toFixed(4) }}
-        </p>
-        <p class="text-xs text-gray-400">
-          <template v-if="showAccountCost && totalAccountCost != null">
-            <span class="text-orange-500">{{ t('usage.accountCost') }} ${{ totalAccountCost.toFixed(4) }}</span>
-            <span> · </span>
-          </template>
-          <span>
-            {{ t('usage.standardCost') }}
-            <span :class="{ 'line-through': strikeStandardCost }">${{ (stats?.total_cost || 0).toFixed(4) }}</span>
-          </span>
-        </p>
+      <div class="card p-4 flex items-center gap-3">
+        <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30 text-emerald-600">
+          <Icon name="dollar" size="md" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-medium text-gray-500">{{ t('admin.usage.totalEarnings') }}</p>
+          <p class="text-xl font-bold text-emerald-600" data-testid="stats-earnings">${{ (adminStats?.total_earnings || 0).toFixed(4) }}</p>
+          <p class="text-xs text-gray-400">{{ t('admin.usage.earningsGiftExcluded') }}</p>
+        </div>
       </div>
-    </div>
+    </template>
+    <template v-else>
+      <div class="card p-4 flex items-center gap-3">
+        <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30 text-green-600">
+          <Icon name="dollar" size="md" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-medium text-gray-500">{{ variant === 'admin' ? t('admin.usage.receivable') : t('usage.totalCost') }}</p>
+          <p class="text-xl font-bold text-green-600" :data-testid="variant === 'admin' ? 'stats-receivable' : 'stats-charged'">
+            ${{ (stats?.total_actual_cost || 0).toFixed(4) }}
+          </p>
+          <p class="flex flex-wrap gap-x-1 text-xs text-gray-400">
+            <span>
+              {{ t('usage.officialCost') }}
+              <span data-testid="stats-official-cost" :class="{ 'line-through': variant === 'user' && discountRatio != null && discountRatio < 1 }">${{ (stats?.total_cost || 0).toFixed(4) }}</span>
+            </span>
+            <span>·</span>
+            <span>{{ t('usage.discountRate') }} <span data-testid="stats-discount">{{ discountRatio != null ? `${formatMultiplier(discountRatio)}x` : '-' }}</span></span>
+          </p>
+          <p v-if="variant === 'admin' && (adminStats?.total_paid_cost != null || adminStats?.total_gift_cost != null)" class="flex flex-wrap gap-x-1 text-xs text-gray-400">
+            <span>{{ t('admin.usage.paidPortion') }} <span data-testid="stats-paid">${{ (adminStats?.total_paid_cost || 0).toFixed(4) }}</span></span>
+            <span>·</span>
+            <span>{{ t('admin.usage.giftPortion') }} <span data-testid="stats-gift">${{ (adminStats?.total_gift_cost || 0).toFixed(4) }}</span></span>
+          </p>
+        </div>
+      </div>
+      <div v-if="variant === 'admin'" class="card p-4 flex items-center gap-3">
+        <div class="rounded-lg bg-orange-100 p-2 dark:bg-orange-900/30 text-orange-600">
+          <Icon name="dollar" size="md" />
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-medium text-gray-500">{{ t('admin.usage.accountCostTotal') }}</p>
+          <p class="text-xl font-bold text-orange-500" data-testid="stats-account-cost">${{ (adminStats?.total_account_cost || 0).toFixed(4) }}</p>
+          <p class="text-xs text-gray-400">
+            {{ t('admin.usage.ownerPayable') }}
+            <span class="text-emerald-600 dark:text-emerald-400" data-testid="stats-owner-payable">${{ (adminStats?.total_earnings || 0).toFixed(4) }}</span>
+          </p>
+          <p v-if="adminStats?.total_gift_account_cost != null" class="text-xs text-gray-400">
+            {{ t('admin.usage.giftAccountCostRef') }}
+            <span data-testid="stats-gift-account-cost">${{ adminStats.total_gift_account_cost.toFixed(4) }}</span>
+          </p>
+        </div>
+      </div>
+    </template>
     <div class="card p-4 flex items-center gap-3">
       <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30 text-purple-600">
         <Icon name="clock" size="md" />
@@ -94,24 +140,33 @@ import { useI18n } from 'vue-i18n'
 import type { AdminUsageStatsResponse } from '@/api/admin/usage'
 import type { UsageStatsResponse } from '@/types'
 import Icon from '@/components/icons/Icon.vue'
+import { formatMultiplier } from '@/utils/formatters'
+
+/**
+ * admin: 官方价/折扣/应收(现金+赠送)/账号成本/号主应付
+ * owner: 仅官方价与收益(不含赠送),不渲染用户实扣、倍率与账号成本
+ * user:  官方价/折扣/实扣
+ */
+type UsageStatsVariant = 'admin' | 'owner' | 'user'
 
 const props = withDefaults(defineProps<{
   stats: (AdminUsageStatsResponse | UsageStatsResponse) | null
-  showAccountCost?: boolean
-  strikeStandardCost?: boolean
+  variant?: UsageStatsVariant
 }>(), {
-  showAccountCost: true,
-  strikeStandardCost: false,
+  variant: 'admin',
 })
 
 const { t } = useI18n()
 
-const totalAccountCost = computed(() => {
-  const stats = props.stats as (AdminUsageStatsResponse & { total_account_cost?: number }) | null
-  return stats?.total_account_cost ?? null
+const adminStats = computed(() => props.stats as AdminUsageStatsResponse | null)
+const pendingRequests = computed(() => adminStats.value?.pending_requests ?? 0)
+// 汇总折扣 = 应收 / 官方价
+const discountRatio = computed(() => {
+  const totalCost = props.stats?.total_cost ?? 0
+  const actual = props.stats?.total_actual_cost
+  if (!(totalCost > 0) || actual == null) return null
+  return actual / totalCost
 })
-const showAccountCost = computed(() => props.showAccountCost)
-const strikeStandardCost = computed(() => props.strikeStandardCost)
 
 const formatDuration = (ms: number) =>
   ms < 1000 ? `${ms.toFixed(0)}ms` : `${(ms / 1000).toFixed(2)}s`

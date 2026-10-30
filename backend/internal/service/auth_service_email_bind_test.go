@@ -14,6 +14,7 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
+	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -173,6 +174,15 @@ func TestAuthServiceBindEmailIdentity_UpdatesEmailAndAppliesFirstBindDefaults(t 
 	require.Equal(t, int64(11), assigner.calls[0].GroupID)
 	require.Equal(t, 30, assigner.calls[0].ValidityDays)
 	require.Equal(t, 1, countProviderGrantRecords(t, client, user.ID, "email", "first_bind"))
+
+	// 首次绑定发放的余额以 [src:gift] 余额调整留痕，供成本账本识别为赠送。
+	records, err := client.RedeemCode.Query().Where(redeemcode.UsedByEQ(user.ID)).All(ctx)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.Equal(t, service.AdjustmentTypeAdminBalance, records[0].Type)
+	require.Equal(t, 8.5, records[0].Value)
+	require.Equal(t, service.FirstBindBonusNotes, *records[0].Notes)
+	require.NotNil(t, records[0].UsedAt)
 }
 
 func TestAuthServiceBindEmailIdentity_RejectsExistingEmailOnAnotherUser(t *testing.T) {

@@ -1,44 +1,37 @@
 /**
  * Period helpers for finance / settlement pages.
  *
- * Ranges are YYYY-MM-DD in the browser's local timezone with an inclusive end,
- * matching the backend contract (which also caps a range at 366 days).
+ * Presets are resolved by the backend in the site timezone, so the browser
+ * never computes preset dates. Only a custom range carries YYYY-MM-DD dates
+ * (inclusive end, no length cap).
  */
-import type { FinanceDateRange } from '@/api/admin/finance'
+import type { FinanceRange, FinanceRangeKind, LedgerStatus } from '@/api/admin/finance'
 
-export type FinancePeriodPreset = 'thisMonth' | 'lastMonth' | 'custom'
+export const FINANCE_RANGE_PRESETS: FinanceRangeKind[] = [
+  'today',
+  'yesterday',
+  'this_month',
+  'last_month',
+  'last_7d',
+  'last_30d',
+  'all',
+  'custom'
+]
 
-export const FINANCE_PERIOD_PRESETS: FinancePeriodPreset[] = ['thisMonth', 'lastMonth', 'custom']
-
-export const FINANCE_MAX_RANGE_DAYS = 366
+/** Ledger lag above this is surfaced as "not settled yet". */
+export const LEDGER_LAG_WARN_SECONDS = 300
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
-const DAY_MS = 24 * 60 * 60 * 1000
+
+export function defaultFinanceRange(): FinanceRange {
+  return { range: 'this_month' }
+}
 
 export function toLocalDateString(date: Date): string {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
-}
-
-export function thisMonthRange(now: Date = new Date()): FinanceDateRange {
-  return {
-    start: toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1)),
-    end: toLocalDateString(now)
-  }
-}
-
-export function lastMonthRange(now: Date = new Date()): FinanceDateRange {
-  return {
-    start: toLocalDateString(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-    end: toLocalDateString(new Date(now.getFullYear(), now.getMonth(), 0))
-  }
-}
-
-/** Range for a fixed preset; 'custom' falls back to this month. */
-export function presetRange(preset: FinancePeriodPreset, now: Date = new Date()): FinanceDateRange {
-  return preset === 'lastMonth' ? lastMonthRange(now) : thisMonthRange(now)
 }
 
 function parseDay(value: string): number | null {
@@ -51,9 +44,29 @@ function parseDay(value: string): number | null {
   return ts
 }
 
-export function isValidFinanceRange(range: FinanceDateRange): boolean {
-  const start = parseDay(range.start)
-  const end = parseDay(range.end)
-  if (start === null || end === null || end < start) return false
-  return Math.round((end - start) / DAY_MS) + 1 <= FINANCE_MAX_RANGE_DAYS
+export function isValidCustomRange(start: string, end: string): boolean {
+  const from = parseDay(start)
+  const to = parseDay(end)
+  return from !== null && to !== null && to >= from
+}
+
+export function ledgerIsLagging(ledger: LedgerStatus | null | undefined): boolean {
+  if (!ledger) return false
+  return ledger.lag_seconds < 0 || ledger.lag_seconds > LEDGER_LAG_WARN_SECONDS
+}
+
+export type LedgerLagUnit = 'seconds' | 'minutes' | 'hours' | 'days'
+
+export function ledgerLag(seconds: number): { unit: LedgerLagUnit; n: number } {
+  const s = Math.max(0, Math.floor(seconds))
+  if (s < 60) return { unit: 'seconds', n: s }
+  if (s < 3600) return { unit: 'minutes', n: Math.floor(s / 60) }
+  if (s < 86400) return { unit: 'hours', n: Math.floor(s / 3600) }
+  return { unit: 'days', n: Math.floor(s / 86400) }
+}
+
+/** Localised lag, e.g. "12 min". */
+export function ledgerLagText(t: (key: string, params?: Record<string, unknown>) => string, seconds: number): string {
+  const { unit, n } = ledgerLag(seconds)
+  return t(`admin.finance.ledger.lagUnits.${unit}`, { n })
 }
