@@ -101,6 +101,8 @@ interface Column {
 const count = (v: number) => formatNumber(v ?? 0)
 const money = (v: number) => formatPreciseUSD(v)
 
+// Reads left to right: who → usage → billed to users (paid + internal) →
+// account cost − internal-use cost = payable this period → all-time − paid out = unpaid.
 const columns = computed<Column[]>(() => [
   { key: 'active_accounts', label: t('admin.finance.settlement.activeAccounts'), hint: t('admin.finance.settlement.hints.activeAccounts'), format: count },
   { key: 'requests', label: t('admin.finance.settlement.requests'), format: count },
@@ -109,13 +111,13 @@ const columns = computed<Column[]>(() => [
   { key: 'paid_cost', label: t('admin.finance.settlement.paidCost'), hint: t('admin.finance.settlement.hints.paidCost'), format: money },
   { key: 'gift_cost', label: t('admin.finance.settlement.giftCost'), hint: t('admin.finance.settlement.hints.giftCost'), format: money },
   { key: 'account_cost', label: t('admin.finance.settlement.accountCost'), hint: t('admin.finance.settlement.hints.accountCost'), format: money },
-  { key: 'earnings', label: t('admin.finance.settlement.earnings'), hint: t('admin.finance.settlement.hints.earnings'), format: money },
   {
     key: 'gift_account_cost',
     label: t('admin.finance.settlement.giftAccountCost'),
     hint: t('admin.finance.settlement.hints.giftAccountCost'),
     format: money
   },
+  { key: 'earnings', label: t('admin.finance.settlement.earnings'), hint: t('admin.finance.settlement.hints.earnings'), format: money },
   { key: 'earnings_all_time', label: t('admin.finance.settlement.earningsAllTime'), format: money },
   { key: 'paid_total', label: t('admin.finance.settlement.paidTotal'), format: money },
   { key: 'unpaid', label: t('admin.finance.settlement.unpaid'), hint: t('admin.finance.settlement.hints.unpaid'), format: money }

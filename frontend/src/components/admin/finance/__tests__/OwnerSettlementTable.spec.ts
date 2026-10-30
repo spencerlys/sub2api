@@ -45,14 +45,22 @@ const COLUMNS = [
   'paid_cost',
   'gift_cost',
   'account_cost',
-  'earnings',
   'gift_account_cost',
+  'earnings',
   'earnings_all_time',
   'paid_total',
   'unpaid'
 ]
 
 describe('OwnerSettlementTable', () => {
+  it('orders columns: usage, billed to users, account cost − internal use = payable, settlement', () => {
+    const wrapper = mount(OwnerSettlementTable, { props: { items: [row()], totals } })
+    const order = wrapper
+      .findAll('[data-testid^="settlement-col-"]')
+      .map((h) => h.attributes('data-testid')!.replace('settlement-col-', ''))
+    expect(order).toEqual(COLUMNS)
+  })
+
   it('shows every settlement column with precise amounts and a totals row', () => {
     const wrapper = mount(OwnerSettlementTable, {
       props: { items: [row({ official_cost: 0.012345, earnings: 0.5 })], totals }
