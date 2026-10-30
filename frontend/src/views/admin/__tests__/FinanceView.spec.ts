@@ -154,7 +154,7 @@ describe('admin FinanceView', () => {
     const row = wrapper.get('[data-testid="settlement-row-3"]').text()
     expect(row).toContain('owner-a@example.com')
     for (const value of ['200.00', '150.00', '120.00', '60.00', '400.00', '300.00', '100.00']) expect(row).toContain(value)
-    expect(wrapper.find('[data-testid="settlement-col-gift_account_cost"]').attributes('data-reference')).toBe('true')
+    expect(wrapper.find('[data-testid="settlement-col-gift_account_cost"]').text()).toBe('admin.finance.settlement.giftAccountCost')
     expect(wrapper.get('[data-testid="settlement-totals"]').text()).toContain('admin.finance.settlement.totals')
 
     expect(wrapper.get('[data-testid="payout-row-21"]').text()).toContain('80.00')
@@ -251,7 +251,7 @@ describe('admin FinanceView', () => {
     await flushPromises()
     expect(toast.showError).toHaveBeenCalledWith('summary down')
   })
-  it('shows usage consumption split into paid and gift portions, with pending', async () => {
+  it('shows usage consumption split into paid use and internal use, without a pending card', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -260,9 +260,24 @@ describe('admin FinanceView', () => {
     expect(block.get('[data-testid="finance-consumption-user_billed"]').text()).toContain('$150.00')
     expect(block.get('[data-testid="finance-consumption-paid_cost"]').text()).toContain('$100.00')
     expect(block.get('[data-testid="finance-consumption-gift_cost"]').text()).toContain('$50.0000')
-    const pending = block.get('[data-testid="finance-consumption-pending"]').text()
-    expect(pending).toContain('12')
-    expect(pending).toContain('$0.042500')
+    expect(block.find('[data-testid="finance-consumption-pending"]').exists()).toBe(false)
+    expect(block.text()).not.toContain('$0.042500')
+  })
+
+  it('warns above the settlement table only when the ledger is abnormal', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    // Fixture ledger has an error (and 20 min lag): a single generic error warning.
+    const notes = wrapper.findAll('[data-testid="ledger-status-note"]')
+    expect(notes).toHaveLength(1)
+    expect(notes[0].text()).toBe('admin.finance.ledger.warning.error')
+  })
+
+  it('shows no ledger warning for routine lag', async () => {
+    api.getFinanceSummary.mockResolvedValue({ ...summary, ledger: { ...ledger, lag_seconds: 150, last_error: '' } })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="ledger-status-note"]').exists()).toBe(false)
   })
 
   it('shows the ledger status (processed until, lag, last error)', async () => {

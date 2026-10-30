@@ -7,6 +7,7 @@ import {
   isValidCustomRange,
   ledgerLag,
   ledgerIsLagging,
+  ledgerWarning,
   toLocalDateString
 } from '../financePeriod'
 
@@ -48,12 +49,26 @@ describe('financePeriod', () => {
   })
 
   it('flags a lagging or never-run ledger', () => {
-    expect(LEDGER_LAG_WARN_SECONDS).toBe(300)
+    expect(LEDGER_LAG_WARN_SECONDS).toBe(600)
     expect(ledgerIsLagging(null)).toBe(false)
     expect(ledgerIsLagging(ledger(30))).toBe(false)
-    expect(ledgerIsLagging(ledger(300))).toBe(false)
-    expect(ledgerIsLagging(ledger(301))).toBe(true)
+    expect(ledgerIsLagging(ledger(600))).toBe(false)
+    expect(ledgerIsLagging(ledger(601))).toBe(true)
     expect(ledgerIsLagging(ledger(-1))).toBe(true)
+  })
+
+  it('warns only when the ledger is abnormal, never for routine lag', () => {
+    expect(ledgerWarning(null)).toBeNull()
+    expect(ledgerWarning(ledger(-1))).toBeNull()
+    expect(ledgerWarning(ledger(180))).toBeNull()
+    expect(ledgerWarning(ledger(600))).toBeNull()
+    expect(ledgerWarning(ledger(601))).toEqual({ kind: 'lag', minutes: 10 })
+    expect(ledgerWarning(ledger(1500))).toEqual({ kind: 'lag', minutes: 25 })
+    expect(ledgerWarning({ ...ledger(30), rebuild_pending: true })).toEqual({ kind: 'rebuild' })
+    expect(ledgerWarning({ ...ledger(30), last_error: 'boom' })).toEqual({ kind: 'error' })
+    // An error wins over a rebuild, which wins over lag.
+    expect(ledgerWarning({ ...ledger(9000), rebuild_pending: true, last_error: 'boom' })).toEqual({ kind: 'error' })
+    expect(ledgerWarning({ ...ledger(9000), rebuild_pending: true })).toEqual({ kind: 'rebuild' })
   })
 
   it('expresses lag in the largest whole unit', () => {

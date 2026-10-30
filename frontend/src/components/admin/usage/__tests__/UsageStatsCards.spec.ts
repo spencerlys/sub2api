@@ -20,15 +20,14 @@ const messages: Record<string, string> = {
   'usage.officialCost': 'Official price',
   'usage.discountRate': 'Discount rate',
   'admin.usage.receivable': 'Receivable',
-  'admin.usage.paidPortion': 'Paid',
-  'admin.usage.giftPortion': 'Gift',
+  'admin.usage.paidPortion': 'Paid use',
+  'admin.usage.giftPortion': 'Internal use',
   'admin.usage.accountCostTotal': 'Account Cost',
   'admin.usage.ownerPayable': 'Owner payable',
-  'admin.usage.giftAccountCostRef': 'Gift-funded cost (ref.)',
-  'admin.usage.pendingRequests': '{count} pending split',
+  'admin.usage.giftAccountCostRef': 'Internal-use cost',
   'admin.usage.officialCostTotal': 'Official-price Cost',
   'admin.usage.totalEarnings': 'My Earnings',
-  'admin.usage.earningsGiftExcluded': 'Gift credit excluded',
+  'admin.usage.earningsGiftExcluded': 'Internal use excluded',
 }
 
 vi.mock('vue-i18n', async () => {
@@ -131,7 +130,9 @@ describe('UsageStatsCards', () => {
     expect(wrapper.get('[data-testid="stats-account-cost"]').text()).toBe('$1.2346')
     expect(wrapper.get('[data-testid="stats-owner-payable"]').text()).toBe('$0.8765')
     expect(wrapper.get('[data-testid="stats-gift-account-cost"]').text()).toBe('$0.1235')
-    expect(wrapper.get('[data-testid="stats-pending"]').text()).toBe('3 pending split')
+    // Routine unsplit requests (pending_requests: 3) are never surfaced.
+    expect(wrapper.find('[data-testid="stats-pending"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('pending')
     expect(wrapper.find('[data-testid="stats-earnings"]').exists()).toBe(false)
   })
 
@@ -150,8 +151,8 @@ describe('UsageStatsCards', () => {
 
     expect(wrapper.get('[data-testid="stats-official-cost"]').text()).toBe('$2.5000')
     expect(wrapper.get('[data-testid="stats-earnings"]').text()).toBe('$0.8765')
-    expect(wrapper.get('[data-testid="stats-pending"]').text()).toBe('3 pending split')
-    expect(wrapper.text()).toContain('Gift credit excluded')
+    expect(wrapper.find('[data-testid="stats-pending"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Internal use excluded')
 
     for (const id of ['stats-receivable', 'stats-discount', 'stats-paid', 'stats-gift', 'stats-account-cost', 'stats-owner-payable', 'stats-gift-account-cost']) {
       expect(wrapper.find(`[data-testid="${id}"]`).exists()).toBe(false)

@@ -907,7 +907,7 @@ describe('admin UsageView billing visibility', () => {
 		expect(sheet['admin.usage.giftAccountCostRef']).toBe('0.000389')
 	})
 
-	it('marks pending split rows instead of exporting guessed numbers', async () => {
+	it('leaves split cells empty for unsplit rows instead of exporting guessed numbers', async () => {
 		exportList.mockResolvedValue({
 			items: [{ ...exportRow, split_pending: true, paid_cost: null, gift_cost: null, earnings: null, gift_account_cost: null }],
 			total: 1, pages: 1,
@@ -917,9 +917,10 @@ describe('admin UsageView billing visibility', () => {
 		await flushPromises()
 
 		const sheet = await exportSheet(wrapper)
-		expect(sheet['admin.usage.paidPortion']).toBe('admin.usage.splitPending')
-		expect(sheet['admin.usage.giftPortion']).toBe('admin.usage.splitPending')
-		expect(sheet['admin.usage.ownerPayable']).toBe('admin.usage.splitPending')
+		expect(sheet['admin.usage.paidPortion']).toBe('')
+		expect(sheet['admin.usage.giftPortion']).toBe('')
+		expect(sheet['admin.usage.ownerPayable']).toBe('')
+		expect(sheet['admin.usage.giftAccountCostRef']).toBe('')
 	})
 
 	it('owners get the owner variant, an earnings column and no billed/multiplier data', async () => {

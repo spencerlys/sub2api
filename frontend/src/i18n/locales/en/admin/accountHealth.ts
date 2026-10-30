@@ -54,7 +54,6 @@ export default {
       earnings: 'Payable'
     },
     unowned: 'Unowned',
-    pendingRequests: '{count} pending settlement',
     errorCategory: {
       rate_limit: 'Rate limit',
       overloaded: 'Overloaded',

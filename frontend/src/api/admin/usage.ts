@@ -27,7 +27,7 @@ export interface AdminUsageStatsResponse {
   total_paid_cost?: number
   /** 应收中的赠送额度部分;owner 调用方不返回 */
   total_gift_cost?: number
-  /** 号主应付(owner 视角即收益,不含赠送部分),仅统计有号主的账号 */
+  /** 应付号主(owner 视角即收益,不含赠送部分),仅统计有号主的账号 */
   total_earnings?: number
   /** 赠送额度对应的账号成本(参考),仅统计有号主的账号;owner 调用方不返回 */
   total_gift_account_cost?: number

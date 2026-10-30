@@ -54,7 +54,6 @@ export default {
       earnings: '应付'
     },
     unowned: '无号主',
-    pendingRequests: '{count} 个待结算',
     errorCategory: {
       rate_limit: '限流',
       overloaded: '过载',

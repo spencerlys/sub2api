@@ -599,10 +599,9 @@ const exportToExcel = async () => {
     const XLSX = await import('xlsx')
     // 列定义 + 可见口径:owner 行不含 user/api_key/user_agent/ip_address,也不含实扣/倍率/账号成本/拆分
     type ExportCol = { header: string; value: (log: AdminUsageLog) => unknown; scope?: 'admin' | 'owner' }
-    const pendingLabel = t('admin.usage.splitPending')
-    // 待拆分行导出 pending 标记,不猜数字
+    // 未拆分行导出留空,不猜数字
     const splitValue = (log: AdminUsageLog, v: number | null | undefined) =>
-      log.split_pending ? pendingLabel : (v == null ? '' : v.toFixed(6))
+      log.split_pending || v == null ? '' : v.toFixed(6)
     const exportCols: ExportCol[] = [
       { header: t('usage.time'), value: (log) => log.created_at },
       { header: t('admin.usage.user'), value: (log) => log.user?.email || '', scope: 'admin' },

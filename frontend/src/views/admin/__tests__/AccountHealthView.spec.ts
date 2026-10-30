@@ -293,7 +293,9 @@ describe('admin AccountHealthView', () => {
     expect(wrapper.text()).toContain('admin.accountHealth.columns.earnings')
     expect(wrapper.get('[data-testid="account-health-official-1"]').text()).toContain('$2.5000')
     expect(wrapper.get('[data-testid="account-health-earnings-1"]').text()).toContain('$0.750000')
-    expect(wrapper.get('[data-testid="account-health-earnings-1"]').text()).toContain('admin.accountHealth.pendingRequests')
+    // Routine unsplit requests are never surfaced next to earnings.
+    expect(wrapper.get('[data-testid="account-health-earnings-1"]').text()).not.toContain('pending')
+    expect(wrapper.text()).not.toContain('pendingRequests')
   })
 
   it('labels each row with its owner when showing all owners, and shows billed / official / payable', async () => {

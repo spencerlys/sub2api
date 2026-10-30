@@ -77,17 +77,16 @@ describe('OwnerSettlementTable', () => {
     expect(foot.get('[data-testid="settlement-cell-earnings"]').text()).toBe('$80.0000')
   })
 
-  it('labels gift-funded account cost as reference only and never folds it into payable', () => {
+  it('shows internal-use cost as a plain column and never folds it into payable', () => {
     const wrapper = mount(OwnerSettlementTable, { props: { items: [row()], totals } })
 
     const header = wrapper.get('[data-testid="settlement-col-gift_account_cost"]')
-    expect(header.text()).toContain('admin.finance.settlement.giftAccountCost')
-    expect(header.text()).toContain('admin.finance.settlement.referenceOnly')
-    expect(header.attributes('data-reference')).toBe('true')
+    expect(header.text()).toBe('admin.finance.settlement.giftAccountCost')
+    expect(header.attributes('data-reference')).toBeUndefined()
 
     const cell = wrapper.get('[data-testid="settlement-row-3"] [data-testid="settlement-cell-gift_account_cost"]')
     expect(cell.text()).toBe('$40.0000')
-    expect(cell.classes()).toContain('italic')
+    expect(cell.classes()).not.toContain('italic')
 
     // Payable is exactly `earnings` (80), not earnings + gift_account_cost (120).
     const payable = wrapper.get('[data-testid="settlement-totals"] [data-testid="settlement-cell-earnings"]')
@@ -95,9 +94,10 @@ describe('OwnerSettlementTable', () => {
     expect(payable.text()).not.toContain('120')
   })
 
-  it('flags owners with requests still pending settlement', () => {
+  it('never shows routine pending requests under the request count', () => {
     const wrapper = mount(OwnerSettlementTable, { props: { items: [row({ pending_requests: 12 })], totals } })
-    expect(wrapper.get('[data-testid="settlement-row-3"] [data-testid="settlement-pending"]').text()).toContain('"count":"12"')
+    expect(wrapper.find('[data-testid="settlement-pending"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="settlement-row-3"] [data-testid="settlement-cell-requests"]').text()).not.toContain('12')
   })
 
   it('emits record-payout only when the action column is enabled', async () => {

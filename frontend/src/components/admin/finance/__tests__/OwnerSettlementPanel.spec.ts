@@ -62,7 +62,7 @@ describe('OwnerSettlementPanel', () => {
     getOwnerSettlements.mockResolvedValue(response())
   })
 
-  it('loads this month for all owners and shows the table, window and pending note', async () => {
+  it('loads this month for all owners and shows the table and window, without a pending note', async () => {
     const wrapper = mount(OwnerSettlementPanel, { props: { ownerUserId: null } })
     await flushPromises()
 
@@ -70,7 +70,9 @@ describe('OwnerSettlementPanel', () => {
     expect(wrapper.get('[data-testid="settlement-row-5"]').text()).toContain('owner-b@example.com')
     expect(wrapper.get('[data-testid="settlement-totals"] [data-testid="settlement-cell-earnings"]').text()).toBe('$0.375000')
     expect(wrapper.get('[data-testid="finance-window"]').text()).toContain('Asia/Shanghai')
-    expect(wrapper.get('[data-testid="ledger-pending-note"]').text()).toContain('"count":"4"')
+    // 4 unsplit requests and 20 s of lag are routine: no ledger note at all.
+    expect(wrapper.find('[data-testid="ledger-status-note"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('"count":"4"')
     expect(wrapper.find('[data-testid="settlement-payout-5"]').exists()).toBe(false)
   })
 

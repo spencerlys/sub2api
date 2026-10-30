@@ -34,7 +34,7 @@
         <h2 class="border-b border-gray-100 px-4 py-3 text-base font-semibold text-gray-900 dark:border-dark-700 dark:text-white">
           {{ t('admin.finance.settlement.title') }}
         </h2>
-        <LedgerStatusNote class="px-4 pt-2" :ledger="null" :pending-requests="settlementTotals?.pending_requests ?? 0" />
+        <LedgerStatusNote class="px-4 pt-2" :ledger="summary?.ledger" />
         <OwnerSettlementTable
           :items="settlementRows"
           :totals="settlementTotals"

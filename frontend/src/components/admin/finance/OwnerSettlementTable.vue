@@ -8,13 +8,10 @@
             v-for="col in columns"
             :key="col.key"
             class="px-3 py-2 text-right align-bottom"
-            :class="col.reference ? 'font-normal text-gray-400 dark:text-gray-500' : ''"
             :title="col.hint"
             :data-testid="`settlement-col-${col.key}`"
-            :data-reference="col.reference ? 'true' : undefined"
           >
-            <span class="block">{{ col.label }}</span>
-            <span v-if="col.reference" class="block text-[11px] italic">{{ t('admin.finance.settlement.referenceOnly') }}</span>
+            {{ col.label }}
           </th>
           <th v-if="payoutAction" class="px-3 py-2 text-right">{{ t('admin.finance.settlement.actions') }}</th>
         </tr>
@@ -32,14 +29,7 @@
             :class="cellClass(col, row)"
             :data-testid="`settlement-cell-${col.key}`"
           >
-            <span>{{ col.format(row[col.key]) }}</span>
-            <span
-              v-if="col.key === 'requests' && row.pending_requests > 0"
-              class="block text-xs font-normal not-italic text-amber-600 dark:text-amber-400"
-              data-testid="settlement-pending"
-            >
-              {{ t('admin.finance.settlement.pendingRequests', { count: formatNumber(row.pending_requests) }) }}
-            </span>
+            {{ col.format(row[col.key]) }}
           </td>
           <td v-if="payoutAction" class="px-3 py-2 text-right">
             <button
@@ -64,8 +54,7 @@
           <td
             v-for="col in columns"
             :key="col.key"
-            class="whitespace-nowrap px-3 py-2 text-right"
-            :class="col.reference ? 'font-normal italic text-gray-400 dark:text-gray-500' : 'text-gray-900 dark:text-white'"
+            class="whitespace-nowrap px-3 py-2 text-right text-gray-900 dark:text-white"
             :data-testid="`settlement-cell-${col.key}`"
           >
             {{ col.format(totals[col.key]) }}
@@ -85,8 +74,8 @@ import { formatNumber } from '@/utils/format'
 import { formatPreciseUSD } from '@/utils/preciseMoney'
 
 // Per-owner settlement. `earnings` (payable) is what the owner is owed: the
-// account cost of the paid-funded part only. `gift_account_cost` is shown for
-// reference and is never added to anything payable.
+// account cost of paid use only. `gift_account_cost` (internal-use cost) is
+// never added to anything payable.
 withDefaults(
   defineProps<{
     items: OwnerSettlementRow[]
@@ -106,7 +95,6 @@ interface Column {
   key: ColumnKey
   label: string
   hint?: string
-  reference?: boolean
   format: (v: number) => string
 }
 
@@ -126,7 +114,6 @@ const columns = computed<Column[]>(() => [
     key: 'gift_account_cost',
     label: t('admin.finance.settlement.giftAccountCost'),
     hint: t('admin.finance.settlement.hints.giftAccountCost'),
-    reference: true,
     format: money
   },
   { key: 'earnings_all_time', label: t('admin.finance.settlement.earningsAllTime'), format: money },
@@ -135,7 +122,6 @@ const columns = computed<Column[]>(() => [
 ])
 
 function cellClass(col: Column, row: OwnerSettlementRow): string {
-  if (col.reference) return 'italic text-gray-400 dark:text-gray-500'
   if (col.key === 'unpaid' && row.unpaid > 0) return 'font-semibold text-amber-600 dark:text-amber-400'
   if (col.key === 'earnings') return 'font-medium text-gray-900 dark:text-white'
   return 'text-gray-900 dark:text-gray-100'

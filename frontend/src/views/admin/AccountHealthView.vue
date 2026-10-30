@@ -130,12 +130,9 @@
           </template>
 
           <template #cell-earnings="{ row }">
-            <div class="flex flex-col text-sm" :data-testid="`account-health-earnings-${row.id}`">
-              <span class="whitespace-nowrap font-medium text-gray-900 dark:text-gray-100">{{ formatPreciseUSD(row.earnings) }}</span>
-              <span v-if="row.pending_requests > 0" class="whitespace-nowrap text-xs text-amber-600 dark:text-amber-400">
-                {{ t('admin.accountHealth.pendingRequests', { count: formatNumber(row.pending_requests) }) }}
-              </span>
-            </div>
+            <span class="whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100" :data-testid="`account-health-earnings-${row.id}`">
+              {{ formatPreciseUSD(row.earnings) }}
+            </span>
           </template>
 
           <template #cell-last_success_at="{ row }">

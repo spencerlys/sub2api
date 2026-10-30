@@ -25,8 +25,8 @@ enableAutoUnmount(afterEach)
 const ledger = {
   processed_until: '2026-10-30T03:59:00Z',
   last_run_at: '2026-10-30T04:00:00Z',
-  lag_seconds: 60,
-  last_error: 'secret db error',
+  lag_seconds: 150,
+  last_error: '',
   rebuild_pending: false,
   last_rebuild_at: null
 }
@@ -66,9 +66,9 @@ describe('OwnerEarningsCard', () => {
     expect(wrapper.get('[data-testid="owner-earnings-paid_total"]').text()).toContain('$250.00')
     expect(wrapper.get('[data-testid="owner-earnings-unpaid"]').text()).toContain('$50.0000')
     expect(wrapper.get('[data-testid="finance-window"]').text()).toContain('Asia/Shanghai')
-    // No pending note, no lag note, and never the ledger error or billed amounts.
+    // Routine lag and unsplit requests are never surfaced, nor billed amounts.
     expect(wrapper.find('[data-testid="ledger-status-note"]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('secret db error')
+    expect(wrapper.text()).not.toContain('pending')
     expect(wrapper.text()).not.toMatch(/multiplier|user_billed|userBilled|account_cost|accountCost|paid_cost|gift_cost/i)
   })
 
@@ -90,14 +90,23 @@ describe('OwnerEarningsCard', () => {
     expect(wrapper.get('[data-testid="finance-window"]').text()).toContain('admin.finance.period.allTime')
   })
 
-  it('notes requests still pending settlement and a lagging ledger', async () => {
+  it('warns once when the ledger is more than 10 minutes behind', async () => {
     getMyOwnerSettlement.mockResolvedValue(settlement({ pending_requests: 17, ledger: { ...ledger, lag_seconds: 900 } }))
     const wrapper = mount(OwnerEarningsCard)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="ledger-pending-note"]').text()).toContain('admin.finance.ledger.pendingNote')
-    expect(wrapper.get('[data-testid="ledger-pending-note"]').text()).toContain('"count":"17"')
-    expect(wrapper.get('[data-testid="ledger-lag-note"]').text()).toContain('admin.finance.ledger.lagNote')
+    const notes = wrapper.findAll('[data-testid="ledger-status-note"]')
+    expect(notes).toHaveLength(1)
+    expect(notes[0].text()).toBe('admin.finance.ledger.warning.lag {"minutes":"15"}')
+    expect(wrapper.text()).not.toContain('"count":"17"')
+  })
+
+  it('shows a generic error warning without leaking the ledger error text', async () => {
+    getMyOwnerSettlement.mockResolvedValue(settlement({ ledger: { ...ledger, last_error: 'secret db error' } }))
+    const wrapper = mount(OwnerEarningsCard)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="ledger-status-note"]').text()).toBe('admin.finance.ledger.warning.error')
     expect(wrapper.text()).not.toContain('secret db error')
   })
 

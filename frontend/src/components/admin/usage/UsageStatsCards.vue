@@ -8,7 +8,6 @@
         <p class="text-xs font-medium text-gray-500">{{ t('usage.totalRequests') }}</p>
         <p class="text-xl font-bold">{{ stats?.total_requests?.toLocaleString() || '0' }}</p>
         <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
-        <p v-if="variant !== 'user' && pendingRequests > 0" data-testid="stats-pending" class="text-xs text-amber-600 dark:text-amber-400">{{ t('admin.usage.pendingRequests', { count: pendingRequests.toLocaleString() }) }}</p>
       </div>
     </div>
     <div class="card p-4 flex items-center gap-3">
@@ -59,7 +58,7 @@
         </p>
       </div>
     </div>
-    <!-- owner:只看官方标价消耗与自己的收益(不含赠送),绝不展示用户实扣/倍率/账号成本 -->
+    <!-- owner:只看官方标价消耗与自己的收益(不含内部调用),绝不展示用户实扣/倍率/账号成本 -->
     <template v-if="variant === 'owner'">
       <div class="card p-4 flex items-center gap-3">
         <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30 text-green-600">
@@ -143,8 +142,8 @@ import Icon from '@/components/icons/Icon.vue'
 import { formatMultiplier } from '@/utils/formatters'
 
 /**
- * admin: 官方价/折扣/应收(现金+赠送)/账号成本/号主应付
- * owner: 仅官方价与收益(不含赠送),不渲染用户实扣、倍率与账号成本
+ * admin: 官方价/折扣/应收(付费调用+内部调用)/账号成本/应付号主
+ * owner: 仅官方价与收益(不含内部调用),不渲染用户实扣、倍率与账号成本
  * user:  官方价/折扣/实扣
  */
 type UsageStatsVariant = 'admin' | 'owner' | 'user'
@@ -159,7 +158,6 @@ const props = withDefaults(defineProps<{
 const { t } = useI18n()
 
 const adminStats = computed(() => props.stats as AdminUsageStatsResponse | null)
-const pendingRequests = computed(() => adminStats.value?.pending_requests ?? 0)
 // 汇总折扣 = 应收 / 官方价
 const discountRatio = computed(() => {
   const totalCost = props.stats?.total_cost ?? 0

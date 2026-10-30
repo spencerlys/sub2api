@@ -235,10 +235,7 @@
               <div data-testid="usage-cost-standard" class="mt-0.5 text-[11px] tabular-nums text-gray-500 dark:text-gray-400">{{ t('usage.officialCost') }} ${{ row.total_cost?.toFixed(6) || '0.000000' }} · {{ formatMultiplier(row.rate_multiplier ?? 1) }}x</div>
             </template>
             <template v-if="variant === 'admin'">
-              <div v-if="row.split_pending" class="mt-0.5">
-                <span data-testid="usage-split-pending" :title="t('admin.usage.splitPendingHint')" :class="SPLIT_PENDING_BADGE_CLASS">{{ t('admin.usage.splitPending') }}</span>
-              </div>
-              <div v-else-if="row.paid_cost != null || row.gift_cost != null" data-testid="usage-cost-split" class="mt-0.5 text-[11px] tabular-nums text-gray-500 dark:text-gray-400">{{ t('admin.usage.paidPortion') }} ${{ (row.paid_cost ?? 0).toFixed(6) }} · {{ t('admin.usage.giftPortion') }} ${{ (row.gift_cost ?? 0).toFixed(6) }}</div>
+              <div v-if="!row.split_pending && (row.paid_cost != null || row.gift_cost != null)" data-testid="usage-cost-split" class="mt-0.5 text-[11px] tabular-nums text-gray-500 dark:text-gray-400">{{ t('admin.usage.paidPortion') }} ${{ (row.paid_cost ?? 0).toFixed(6) }} · {{ t('admin.usage.giftPortion') }} ${{ (row.gift_cost ?? 0).toFixed(6) }}</div>
               <div v-if="accountBillingVisible && row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
                 A ${{ accountBilled(row).toFixed(6) }}
               </div>
@@ -246,10 +243,9 @@
           </div>
         </template>
 
-        <!-- 号主应付(admin) / 收益(owner):待拆分行显示 pending,绝不估算 -->
+        <!-- 应付号主(admin) / 收益(owner):未拆分行留空(-),绝不估算 -->
         <template #cell-earnings="{ row }">
-          <span v-if="row.split_pending" data-testid="usage-split-pending" :title="t('admin.usage.splitPendingHint')" :class="SPLIT_PENDING_BADGE_CLASS">{{ t('admin.usage.splitPending') }}</span>
-          <span v-else-if="row.earnings != null" data-testid="usage-earnings" class="text-sm font-medium tabular-nums text-emerald-600 dark:text-emerald-400">${{ row.earnings.toFixed(6) }}</span>
+          <span v-if="!row.split_pending && row.earnings != null" data-testid="usage-earnings" class="text-sm font-medium tabular-nums text-emerald-600 dark:text-emerald-400">${{ row.earnings.toFixed(6) }}</span>
           <span v-else data-testid="usage-earnings-empty" class="text-sm text-gray-400 dark:text-gray-500">-</span>
         </template>
 
@@ -531,13 +527,9 @@
             <span class="text-gray-400">{{ t('usage.userBilled') }}</span>
             <span class="font-semibold text-green-400">${{ tooltipData?.actual_cost?.toFixed(8) || '0.00000000' }}</span>
           </div>
-          <!-- 应收拆分:现金 / 赠送(仅管理员) -->
+          <!-- 应收拆分:付费调用 / 内部调用(仅管理员) -->
           <template v-if="variant === 'admin'">
-            <div v-if="tooltipData?.split_pending" class="flex items-center justify-between gap-6">
-              <span class="text-gray-400">{{ t('admin.usage.paidPortion') }} / {{ t('admin.usage.giftPortion') }}</span>
-              <span class="font-semibold text-amber-300">{{ t('admin.usage.splitPending') }}</span>
-            </div>
-            <template v-else-if="tooltipData?.paid_cost != null || tooltipData?.gift_cost != null">
+            <template v-if="!tooltipData?.split_pending && (tooltipData?.paid_cost != null || tooltipData?.gift_cost != null)">
               <div class="flex items-center justify-between gap-6">
                 <span class="text-gray-400">{{ t('admin.usage.paidPortion') }}</span>
                 <span class="font-medium text-white">${{ (tooltipData?.paid_cost ?? 0).toFixed(8) }}</span>
@@ -650,7 +642,7 @@ interface Props {
   /** 行内缺少嵌套 account/group 对象时(owner 视图)回退显示 #id */
   showIdFallback?: boolean
   /**
-   * 计费展示口径:admin 应收/现金+赠送/账号成本/号主应付;
+   * 计费展示口径:admin 应收/付费调用+内部调用/账号成本/应付号主;
    * owner 仅官方价与收益(不渲染实扣/倍率/账号成本);user 官方价/倍率/实扣
    */
   variant?: 'admin' | 'owner' | 'user'
@@ -678,7 +670,6 @@ const copiedRequestId = ref<string | null>(null)
 const variant = computed(() => props.variant)
 // 账号成本仅管理员可见:owner/user 口径一律不渲染,即使行里带了相关字段
 const accountBillingVisible = computed(() => props.variant === 'admin' && props.showAccountBilling)
-const SPLIT_PENDING_BADGE_CLASS = 'inline-flex items-center rounded px-1 py-px text-[10px] font-semibold leading-tight bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-500/30'
 const showUpstreamEndpoint = props.showUpstreamEndpoint
 const ipGeoBatchLoading = ref(false)
 

@@ -19,7 +19,7 @@
         </button>
       </div>
     </div>
-    <LedgerStatusNote class="px-4 pt-2" :ledger="data?.ledger" :pending-requests="data?.totals?.pending_requests ?? 0" />
+    <LedgerStatusNote class="px-4 pt-2" :ledger="data?.ledger" />
     <OwnerSettlementTable :items="data?.items ?? []" :totals="data?.totals ?? null" :loading="loading" />
   </section>
 </template>

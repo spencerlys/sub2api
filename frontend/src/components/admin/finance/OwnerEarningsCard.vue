@@ -18,7 +18,7 @@
         <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ stat.value }}</p>
       </div>
     </div>
-    <LedgerStatusNote class="mt-2" :ledger="data?.ledger" :pending-requests="data?.pending_requests ?? 0" />
+    <LedgerStatusNote class="mt-2" :ledger="data?.ledger" />
   </div>
 </template>
 

@@ -18,8 +18,11 @@ export const FINANCE_RANGE_PRESETS: FinanceRangeKind[] = [
   'custom'
 ]
 
-/** Ledger lag above this is surfaced as "not settled yet". */
-export const LEDGER_LAG_WARN_SECONDS = 300
+/**
+ * Ledger lag above this is abnormal. The job settles rows older than ~2 min
+ * every minute, so a few minutes of lag is routine and never surfaced.
+ */
+export const LEDGER_LAG_WARN_SECONDS = 600
 
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
 
@@ -55,7 +58,22 @@ export function ledgerIsLagging(ledger: LedgerStatus | null | undefined): boolea
   return ledger.lag_seconds < 0 || ledger.lag_seconds > LEDGER_LAG_WARN_SECONDS
 }
 
-export type LedgerLagUnit = 'seconds' | 'minutes' | 'hours' | 'days'
+export type LedgerWarning = { kind: 'error' } | { kind: 'rebuild' } | { kind: 'lag'; minutes: number }
+
+/**
+ * The single warning to show under settlement figures, or null when the ledger
+ * is healthy (routine pending rows are never surfaced). An error wins over a
+ * rebuild in progress, which wins over plain lag.
+ */
+export function ledgerWarning(ledger: LedgerStatus | null | undefined): LedgerWarning | null {
+  if (!ledger) return null
+  if (ledger.last_error) return { kind: 'error' }
+  if (ledger.rebuild_pending) return { kind: 'rebuild' }
+  if (ledger.lag_seconds > LEDGER_LAG_WARN_SECONDS) return { kind: 'lag', minutes: Math.floor(ledger.lag_seconds / 60) }
+  return null
+}
+
+export type LedgerLagUnit ='seconds' | 'minutes' | 'hours' | 'days'
 
 export function ledgerLag(seconds: number): { unit: LedgerLagUnit; n: number } {
   const s = Math.max(0, Math.floor(seconds))
