@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/netip"
 	"net/textproto"
 	"net/url"
 	"os"
@@ -1699,6 +1700,52 @@ type TotpConfig struct {
 
 type TurnstileConfig struct {
 	Required bool `mapstructure:"required"`
+	// TrustedPeerCIDRs 允许密码登录跳过人机验证的 TCP 对端（CIDR 或单个 IP），
+	// 供直连应用容器的宿主机测试自动化使用。仅匹配 http.Request.RemoteAddr，从不读取转发头；为空即关闭。
+	TrustedPeerCIDRs []string `mapstructure:"trusted_peer_cidrs"`
+}
+
+// IsTrustedPeer 判断 remoteAddr（http.Request.RemoteAddr 格式 host:port）是否命中 TrustedPeerCIDRs。
+func (c TurnstileConfig) IsTrustedPeer(remoteAddr string) bool {
+	if len(c.TrustedPeerCIDRs) == 0 {
+		return false
+	}
+	addrPort, err := netip.ParseAddrPort(remoteAddr)
+	if err != nil {
+		return false
+	}
+	prefixes, err := parseTrustedPeerPrefixes(c.TrustedPeerCIDRs)
+	if err != nil {
+		return false
+	}
+	addr := addrPort.Addr().Unmap()
+	for _, prefix := range prefixes {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseTrustedPeerPrefixes(entries []string) ([]netip.Prefix, error) {
+	prefixes := make([]netip.Prefix, 0, len(entries))
+	for _, entry := range entries {
+		if strings.Contains(entry, "/") {
+			prefix, err := netip.ParsePrefix(entry)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CIDR %q: %w", entry, err)
+			}
+			prefixes = append(prefixes, prefix.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			return nil, fmt.Errorf("invalid IP %q: %w", entry, err)
+		}
+		addr = addr.Unmap()
+		prefixes = append(prefixes, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return prefixes, nil
 }
 
 type DefaultConfig struct {
@@ -1929,6 +1976,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	cfg.OIDC.ValidateIDTokenExplicit = hasExplicitConfigOrEnv("oidc_connect.validate_id_token", "OIDC_CONNECT_VALIDATE_ID_TOKEN")
 	cfg.Dashboard.KeyPrefix = strings.TrimSpace(cfg.Dashboard.KeyPrefix)
 	cfg.CORS.AllowedOrigins = normalizeStringSlice(cfg.CORS.AllowedOrigins)
+	cfg.Turnstile.TrustedPeerCIDRs = normalizeStringSlice(cfg.Turnstile.TrustedPeerCIDRs)
 	cfg.Security.ResponseHeaders.AdditionalAllowed = normalizeStringSlice(cfg.Security.ResponseHeaders.AdditionalAllowed)
 	cfg.Security.ResponseHeaders.ForceRemove = normalizeStringSlice(cfg.Security.ResponseHeaders.ForceRemove)
 	cfg.Security.CSP.Policy = strings.TrimSpace(cfg.Security.CSP.Policy)
@@ -2144,6 +2192,7 @@ func setDefaults() {
 
 	// Turnstile
 	viper.SetDefault("turnstile.required", false)
+	viper.SetDefault("turnstile.trusted_peer_cidrs", []string{})
 
 	// LinuxDo Connect OAuth 登录
 	viper.SetDefault("linuxdo_connect.enabled", false)
@@ -2728,6 +2777,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("security.proxy_probe.urls: %w", err)
 	}
 	c.Security.ProxyProbe.URLs = proxyProbeURLs
+	if _, err := parseTrustedPeerPrefixes(c.Turnstile.TrustedPeerCIDRs); err != nil {
+		return fmt.Errorf("turnstile.trusted_peer_cidrs: %w", err)
+	}
 	if c.Plugins.MaxUploadBytes <= 0 || c.Plugins.MaxUploadBytes > 1024*1024*1024 {
 		return fmt.Errorf("plugins.max_upload_bytes must be between 1 and 1073741824")
 	}

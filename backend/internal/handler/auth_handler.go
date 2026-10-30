@@ -244,7 +244,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	proof := captchaProof(req.TurnstileToken, req.TencentCaptchaTicket, req.TencentCaptchaRandstr)
-	if err := h.authService.VerifyCaptcha(c.Request.Context(), proof, ip.GetClientIP(c)); err != nil {
+	if err := h.verifyLoginCaptcha(c, proof); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -281,6 +281,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	h.authService.RecordSuccessfulLogin(c.Request.Context(), user.ID)
 
 	h.respondWithTokenPair(c, user)
+}
+
+// verifyLoginCaptcha 校验密码登录的人机验证。TCP 对端命中 turnstile.trusted_peer_cidrs 时跳过，
+// 判定只看 RemoteAddr（转发头可伪造）；注册、找回密码等其他入口不走这里。
+func (h *AuthHandler) verifyLoginCaptcha(c *gin.Context, proof service.CaptchaProof) error {
+	if h.cfg != nil && h.cfg.Turnstile.IsTrustedPeer(c.Request.RemoteAddr) {
+		slog.Info("login_captcha_skipped_trusted_peer", "remote_addr", c.Request.RemoteAddr)
+		return nil
+	}
+	return h.authService.VerifyCaptcha(c.Request.Context(), proof, ip.GetClientIP(c))
 }
 
 // TotpLoginResponse represents the response when 2FA is required
