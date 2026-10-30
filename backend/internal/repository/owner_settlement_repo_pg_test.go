@@ -93,8 +93,9 @@ INSERT INTO promo_code_usages(user_id, bonus_amount, used_at) VALUES (101, 3, '2
 INSERT INTO user_affiliate_ledger(user_id, action, amount, created_at) VALUES
   (101, 'transfer', 2, '2026-01-15 12:00:00+00'), (101, 'accrue', 99, '2026-01-15 12:00:00+00');
 
--- 102：线下实收 80 + 更正 +40（赠送桶）+ 线下冲销 −30（先减实付），均在 2 月 10 日；1 月已有一笔透支用量。
+-- 102：1 月线下实收 10（资助 1 月那笔用量）；2 月 10 日线下实收 80 + 更正 +40（赠送桶）+ 线下冲销 −30（先减实付）。
 INSERT INTO redeem_codes(code, type, value, status, used_by, used_at, notes) VALUES
+  ('ADJ-0', 'admin_balance', 10, 'used', 102, '2026-01-15 12:00:00+00', '[src:offline] jan cash'),
   ('ADJ-2', 'admin_balance', 80, 'used', 102, '2026-02-10 12:00:00+00', '[src:offline] bank'),
   ('ADJ-3', 'admin_balance', 40, 'used', 102, '2026-02-10 12:00:00+00', '[SRC:Correction] typo'),
   ('ADJ-4', 'admin_balance', -30, 'used', 102, '2026-02-10 12:00:00+00', '[src:offline] refund');
@@ -220,12 +221,12 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	require.Len(t, splits, 9)
 	const feb13, feb14, feb15, jan13 = "2026-02-10 13:00:00+00", "2026-02-10 14:00:00+00", "2026-02-10 15:00:00+00", "2026-01-15 13:00:00+00"
 	requirePGSplit(t, splits, usageID(t, db, 101, feb13, "12"), "12", "0")
-	requirePGSplit(t, splits, usageID(t, db, 102, jan13, "4"), "0", "4")   // 早于任何入账：透支记为实付
+	requirePGSplit(t, splits, usageID(t, db, 102, jan13, "4"), "0", "4")   // 1 月线下实收资助
 	requirePGSplit(t, splits, usageID(t, db, 102, feb13, "11"), "11", "0") // 更正 +40 进赠送桶，先被消耗
 	requirePGSplit(t, splits, usageID(t, db, 103, feb13, "20"), "20", "0")
 	requirePGSplit(t, splits, usageID(t, db, 103, feb14, "40"), "30", "10")
-	requirePGSplit(t, splits, usageID(t, db, 103, feb15, "99"), "0", "99") // 实付 65 + 透支 34
-	requirePGSplit(t, splits, usageID(t, db, 104, feb13, "6"), "0", "6")
+	requirePGSplit(t, splits, usageID(t, db, 103, feb15, "99"), "34", "65") // 实付 65；透支 34 无付费来源，按赠送
+	requirePGSplit(t, splits, usageID(t, db, 104, feb13, "6"), "6", "0")    // 无任何入账：透支按赠送，所有者不分成
 	var subPaid, subGift int64
 	require.NoError(t, db.QueryRow(`SELECT id FROM usage_logs WHERE user_id = 105 AND group_id = 77`).Scan(&subPaid))
 	require.NoError(t, db.QueryRow(`SELECT id FROM usage_logs WHERE user_id = 105 AND group_id = 78`).Scan(&subGift))
@@ -233,7 +234,7 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	requirePGSplit(t, splits, subGift, "2", "0")
 	states := readLedgerStates(t, db)
 	require.Equal(t, "48", decimalPrefix(states[101]), "gift bucket of 101: 60 − 12")
-	require.Contains(t, states[102], "/50/", "102: paid 80 − 30 offline reversal; gift 40 − 11 = 29")
+	require.Contains(t, states[102], "/56/", "102: paid 10 − 4 + 80 − 30 offline reversal; gift 40 − 11 = 29")
 
 	report, err = svc.GetOwnerSettlements(ctx, febPeriod(), nil)
 	require.NoError(t, err)
@@ -250,7 +251,7 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	require.InDelta(t, 0, a.Earnings, 1e-9, "both February requests were funded by gift credit")
 	require.InDelta(t, 10, a.GiftAccountCost, 1e-9)
 	require.Zero(t, a.PendingRequests)
-	require.InDelta(t, 2, a.EarningsAllTime, 1e-9, "January overdraft of 102 is paid: account cost 2")
+	require.InDelta(t, 2, a.EarningsAllTime, 1e-9, "January usage of 102 funded by offline cash: account cost 2")
 	require.InDelta(t, 1.5, a.PaidTotal, 1e-9, "soft-deleted payouts are excluded")
 	require.InDelta(t, 0.5, a.Unpaid, 1e-9)
 
@@ -259,12 +260,12 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	require.Equal(t, int64(1), b.ActiveAccounts, "only active and schedulable accounts")
 	require.Equal(t, int64(5), b.Requests, "unowned account 3000 is excluded")
 	require.InDelta(t, 73, b.UserBilled, 1e-9)
-	require.InDelta(t, 21, b.PaidCost, 1e-9)
-	require.InDelta(t, 52, b.GiftCost, 1e-9)
+	require.InDelta(t, 15, b.PaidCost, 1e-9)
+	require.InDelta(t, 58, b.GiftCost, 1e-9)
 	require.InDelta(t, 73, b.AccountCost, 1e-9)
-	require.InDelta(t, 21, b.Earnings, 1e-9, "10 (mixed) + 6 (overdraft) + 5 (paid subscription)")
-	require.InDelta(t, 52, b.GiftAccountCost, 1e-9)
-	require.InDelta(t, 21, b.Unpaid, 1e-9)
+	require.InDelta(t, 15, b.Earnings, 1e-9, "10 (mixed) + 5 (paid subscription); unfunded usage of 104 earns nothing")
+	require.InDelta(t, 58, b.GiftAccountCost, 1e-9)
+	require.InDelta(t, 15, b.Unpaid, 1e-9)
 	require.Equal(t, int64(7), report.Totals.Requests)
 
 	all, err := svc.ParsePeriod(service.ReportRangeAll, "", "")
@@ -287,17 +288,17 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	feb := febPeriod()
 	splitStats, err := ledgerRepo.(service.UsageCostSplitReader).UsageSplitStats(ctx, usagestats.UsageLogFilters{OwnerUserID: 20, StartTime: &feb.Start, EndTime: &feb.End})
 	require.NoError(t, err)
-	require.InDelta(t, 21, splitStats.PaidCost, 1e-9)
-	require.InDelta(t, 52, splitStats.GiftCost, 1e-9)
-	require.InDelta(t, 21, splitStats.Earnings, 1e-9)
-	require.InDelta(t, 52, splitStats.GiftAccountCost, 1e-9)
+	require.InDelta(t, 15, splitStats.PaidCost, 1e-9)
+	require.InDelta(t, 58, splitStats.GiftCost, 1e-9)
+	require.InDelta(t, 15, splitStats.Earnings, 1e-9)
+	require.InDelta(t, 58, splitStats.GiftAccountCost, 1e-9)
 	require.Zero(t, splitStats.PendingRequests)
 
 	// 账号健康页的每账户应付。
 	health, err := NewAccountHealthRepository(client, db).AggregateAccountHealthUsage(ctx, []int64{1000, 2000}, feb.Start, feb.End)
 	require.NoError(t, err)
 	require.InDelta(t, 73, health[2000].OfficialCost, 1e-9)
-	require.InDelta(t, 21, health[2000].Earnings, 1e-9)
+	require.InDelta(t, 15, health[2000].Earnings, 1e-9)
 	require.InDelta(t, 73, health[2000].Cost, 1e-9)
 	require.Zero(t, health[1000].Earnings)
 
@@ -309,7 +310,7 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), report.Items[1].PendingRequests)
 	require.InDelta(t, 1, report.Items[1].PendingAccountCost, 1e-9)
-	require.InDelta(t, 21, report.Items[1].Earnings, 1e-9)
+	require.InDelta(t, 15, report.Items[1].Earnings, 1e-9)
 	fin, err := svc.GetFinanceSummary(ctx, febPeriod())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), fin.Consumption.PendingRequests)
@@ -318,17 +319,17 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	res, err = ledger.RunOnce(ctx)
 	require.NoError(t, err)
 	require.Equal(t, service.LedgerRunResult{Users: 1, Rebuilt: 1}, res)
-	requirePGSplit(t, readSplits(t, db), late, "0", "1")
+	requirePGSplit(t, readSplits(t, db), late, "1", "0")
 
 	// 迟到的入账（时间早于已处理的请求）：该用户重建。
-	_, err = db.Exec(`INSERT INTO redeem_codes(code, type, value, status, used_by, used_at, notes) VALUES ('ADJ-LATE', 'admin_balance', 3, 'used', 104, '2026-01-15 12:00:00+00', '[src:gift] late')`)
+	_, err = db.Exec(`INSERT INTO redeem_codes(code, type, value, status, used_by, used_at, notes) VALUES ('ADJ-LATE', 'admin_balance', 3, 'used', 104, '2026-01-15 12:00:00+00', '[src:offline] late cash')`)
 	require.NoError(t, err)
 	res, err = ledger.RunOnce(ctx)
 	require.NoError(t, err)
 	require.Equal(t, service.LedgerRunResult{Users: 1, Rebuilt: 1}, res)
 	splits = readSplits(t, db)
 	requirePGSplit(t, splits, usageID(t, db, 104, feb13, "6"), "3", "3")
-	requirePGSplit(t, splits, late, "0", "1")
+	requirePGSplit(t, splits, late, "1", "0") // 实付已用尽，剩余透支按赠送
 
 	// 修改来源前缀（更正 → 线下实收）：历史入账指纹变化，该用户重建。
 	var corrID int64
@@ -377,7 +378,7 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	jan := service.ReportPeriod{Start: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), End: time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), Location: time.UTC}
 	finJan, err := svc.GetFinanceSummary(ctx, jan)
 	require.NoError(t, err)
-	require.InDelta(t, 50+25+3, finJan.Gift.AdminGiftUSD, 1e-9)
+	require.InDelta(t, 50+25, finJan.Gift.AdminGiftUSD, 1e-9)
 	require.InDelta(t, 5, finJan.Gift.RedeemCodeUSD, 1e-9)
 	require.InDelta(t, 3, finJan.Gift.PromoUSD, 1e-9)
 	require.InDelta(t, 2, finJan.Gift.AffiliateUSD, 1e-9)

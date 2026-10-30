@@ -19,7 +19,7 @@ import (
 // 其余负数（无前缀、gift、correction 以及其他种类）先减赠送桶再减实付桶。两个桶都不低于 0，超出部分忽略。
 //
 // 扣费（LedgerDebit，usage_logs.actual_cost）：按 (created_at, id) 顺序先扣赠送桶再扣实付桶；
-// 两桶皆空时剩余部分记为实付（透支）。同一时刻入账先于扣费。
+// 两桶皆空时剩余部分（透支）没有任何付费来源，记为赠送，所有者不分成。同一时刻入账先于扣费。
 // 订阅计费的请求不扣余额，不动两个桶：用户为该分组购买过（已完成、实付 > 0 的）订阅订单时整笔记为实付，否则记为赠送。
 //
 // 金额使用十进制精确计算，gift_cost + paid_cost 恒等于 actual_cost。
@@ -125,8 +125,9 @@ func (b *LedgerBuckets) ApplyDebit(d LedgerDebit) CostSplit {
 		return s
 	}
 	s.GiftCost = takeFrom(&b.Gift, d.ActualCost)
-	s.PaidCost = d.ActualCost.Sub(s.GiftCost)
-	takeFrom(&b.Paid, s.PaidCost)
+	s.PaidCost = takeFrom(&b.Paid, d.ActualCost.Sub(s.GiftCost))
+	// 余额不足的透支部分没有任何付费来源，按赠送计（owner 不分成）。
+	s.GiftCost = d.ActualCost.Sub(s.PaidCost)
 	return s
 }
 

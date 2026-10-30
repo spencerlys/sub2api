@@ -65,12 +65,12 @@ func TestLedgerGiftFirstThenPaid(t *testing.T) {
 	requireBuckets(t, b, "0", "3.25")       // 8 − 3.5 − 1.25
 }
 
-func TestLedgerOverdraftCountsAsPaid(t *testing.T) {
-	b, splits := RunLedger(LedgerBuckets{}, []LedgerCredit{giftCredit("rc:1", 0, "1")},
+func TestLedgerOverdraftCountsAsGift(t *testing.T) {
+	b, splits := RunLedger(LedgerBuckets{}, []LedgerCredit{giftCredit("rc:1", 0, "1"), offlineCredit("rc:2", 0, "0.5")},
 		[]LedgerDebit{debit(1, 1, "0.4"), debit(2, 2, "1"), debit(3, 3, "2")})
 	requireSplit(t, splits, 1, "0.4", "0")
-	requireSplit(t, splits, 2, "0.6", "0.4") // gift empties, remainder paid although paid bucket is empty
-	requireSplit(t, splits, 3, "0", "2")     // fully overdrawn → paid
+	requireSplit(t, splits, 2, "0.6", "0.4") // gift empties, then paid
+	requireSplit(t, splits, 3, "1.9", "0.1") // paid empties; the unfunded overdraft is not paid money
 	requireBuckets(t, b, "0", "0")           // buckets never go negative
 }
 
@@ -84,7 +84,7 @@ func TestLedgerInterleavedCreditsFollowTime(t *testing.T) {
 }
 
 func TestLedgerCreditsBeforeDebitsOnTies(t *testing.T) {
-	_, splits := RunLedger(LedgerBuckets{}, []LedgerCredit{giftCredit("rc:1", 5, "2")},
+	_, splits := RunLedger(LedgerBuckets{}, []LedgerCredit{offlineCredit("rc:0", 0, "5"), giftCredit("rc:1", 5, "2")},
 		[]LedgerDebit{debit(1, 5, "1"), debit(2, 5, "3")})
 	requireSplit(t, splits, 1, "1", "0")
 	requireSplit(t, splits, 2, "1", "2")
@@ -92,7 +92,7 @@ func TestLedgerCreditsBeforeDebitsOnTies(t *testing.T) {
 
 func TestLedgerDebitsOrderedByTimeThenID(t *testing.T) {
 	// Inputs out of order: the ledger sorts by (created_at, id).
-	_, splits := RunLedger(LedgerBuckets{}, []LedgerCredit{giftCredit("rc:1", 0, "1")},
+	_, splits := RunLedger(LedgerBuckets{}, []LedgerCredit{giftCredit("rc:1", 0, "1"), offlineCredit("rc:2", 0, "2")},
 		[]LedgerDebit{debit(9, 2, "1"), debit(8, 2, "1"), debit(7, 3, "1")})
 	requireSplit(t, splits, 8, "1", "0")
 	requireSplit(t, splits, 9, "0", "1")

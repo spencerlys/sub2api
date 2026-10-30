@@ -245,7 +245,8 @@ func TestLedgerJobIncrementalProcessesOnlyUpToHorizon(t *testing.T) {
 	repo.addCredit(1, offlineCredit("rc:2", 25, "9")) // 晚于第 2 条请求：不应资助它
 	_, err = svc.RunOnce(context.Background())
 	require.NoError(t, err)
-	repo.requireSplit(t, 2, "0.5", "0.5")
+	// 剩余赠送 0.5 先扣；其余 0.5 无任何资金来源（稍后的线下实收不能倒流资助它），按赠送计。
+	repo.requireSplit(t, 2, "1", "0")
 	st := repo.states[1]
 	requireBuckets(t, st.Buckets, "0", "9")
 	require.Nil(t, st.LastRebuildAt, "plain appends never rebuild")
@@ -259,15 +260,15 @@ func TestLedgerJobLateCreditRebuildsUser(t *testing.T) {
 	repo.addDebit(2, debit(2, 2, "1"))
 	_, err := svc.RunOnce(context.Background())
 	require.NoError(t, err)
-	repo.requireSplit(t, 1, "0", "3") // 无入账：透支记为实付
+	repo.requireSplit(t, 1, "3", "0") // 无入账：透支没有付费来源，按赠送计
 
-	// 迟到的赠送入账（时间早于已处理的请求）：该用户从头重建，其余用户不受影响。
-	repo.addCredit(1, giftCredit("rc:9", 1, "2"))
+	// 迟到的线下实收（时间早于已处理的请求）：该用户从头重建，其余用户不受影响。
+	repo.addCredit(1, offlineCredit("rc:9", 1, "2"))
 	now = lat(11)
 	res, err := svc.RunOnce(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, LedgerRunResult{Users: 1, Rebuilt: 1}, res)
-	repo.requireSplit(t, 1, "2", "1")
+	repo.requireSplit(t, 1, "1", "2")
 	require.NotNil(t, repo.states[1].LastRebuildAt)
 	require.Nil(t, repo.states[2].LastRebuildAt)
 }
@@ -296,12 +297,13 @@ func TestLedgerJobLateDebitRebuildsUser(t *testing.T) {
 	now := lat(10)
 	svc := newTestLedgerService(repo, &now)
 	repo.addCredit(1, giftCredit("rc:1", 0, "1"))
+	repo.addCredit(1, offlineCredit("rc:2", 0, "1"))
 	repo.addDebit(1, debit(1, 5, "1"))
 	_, err := svc.RunOnce(context.Background())
 	require.NoError(t, err)
 	repo.requireSplit(t, 1, "1", "0")
 
-	// 晚写入、时间更早的请求：应排在前面吃掉赠送额度。
+	// 晚写入、时间更早的请求：应排在前面吃掉赠送额度，原请求改由实付承担。
 	repo.addDebit(1, debit(2, 3, "1"))
 	now = lat(11)
 	res, err := svc.RunOnce(context.Background())
