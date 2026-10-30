@@ -184,7 +184,10 @@ export default {
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
         systemOne: 'System One',
-        opencode: 'OpenCode'
+        opencode: 'OpenCode',
+        ccSwitch: 'CC Switch',
+        claudeDesktop: 'Claude Desktop',
+        mobile: '手机（iOS / Android）'
       },
       typesafe: {
         description: '通过 TypeSafe 原生 System One 端点调用 Jev。',
@@ -265,6 +268,64 @@ export default {
         title: 'OpenCode 配置示例',
         subtitle: 'opencode.json',
         hint: '配置文件路径：~/.config/opencode/opencode.json（或 opencode.jsonc），不存在需手动创建。可使用默认 provider（openai/anthropic/google）或自定义 provider_id。API Key 支持直接配置或通过客户端 /connect 命令配置。示例仅供参考，模型与选项可按需调整。'
+      },
+      fields: {
+        endpointUrl: '请求地址（Endpoint URL）',
+        apiKey: 'API Key',
+        gatewayBaseUrl: 'Gateway base URL（网关地址）',
+        gatewayApiKey: 'Gateway API key（网关密钥）',
+        apiHost: 'API 域名（API Host）',
+        apiPath: 'API 路径（API Path）',
+        modelId: '模型 ID'
+      },
+      claudeInstall: {
+        title: '安装 Claude Code',
+        brewAlternative: '备选（Homebrew）',
+        npmAlternative: '备选（npm，需 Node.js 22+，无需 sudo）',
+        docsLink: 'Claude Code 安装文档',
+        steps: {
+          install: '用下方第一条命令安装 Claude Code（已安装可跳过），注释行为备选安装方式。',
+          configure: '让 Claude Code 指向本网关：运行环境变量命令仅对当前会话生效，保存 settings.json 可永久生效。',
+          verify: '运行 claude，然后输入 /status，应显示本网关为 base URL。'
+        }
+      },
+      ccSwitch: {
+        description: 'CC Switch 是一款桌面应用，可替你管理 Claude Code 的供应商配置，无需手动改文件。',
+        brewTitle: 'Homebrew（macOS）',
+        releasesLink: 'CC Switch 下载（GitHub Releases）',
+        steps: {
+          installClaude: '如尚未安装 Claude Code，请先安装（见 macOS / Linux、Windows CMD 或 PowerShell 标签页的第一步）。',
+          download: '下载 CC Switch。macOS：Homebrew（见下方命令）或 .dmg；Windows：.msi 安装包或便携版 .zip；Linux：.deb、.rpm 或 .AppImage。',
+          addProvider: '打开 CC Switch，在侧边栏选择 Claude Code，点击“+”（添加供应商），选择“自定义配置”。',
+          fill: '名称任意填写，请求地址填写下方的 base URL（不带 /v1），API Key 填写你的密钥。',
+          enable: '点击保存，选中新建的供应商卡片并点击“启用”。Claude Code 无需重启即可生效。',
+          desktop: '同一应用也可以写入 Claude Desktop 的配置，切换后需重启 Claude Desktop。'
+        }
+      },
+      claudeDesktop: {
+        description: '通过 Claude Desktop 内置的第三方推理设置，让 Chat、Cowork 和 Code 都走本网关。',
+        downloadLink: '下载 Claude Desktop',
+        docsLink: 'Claude Desktop 网关文档',
+        steps: {
+          download: '下载并安装 Claude Desktop（macOS / Windows），启动后先不要登录。',
+          developerMode: '开启开发者模式：Help → Troubleshooting → Enable Developer Mode。Windows 请在登录界面左上角的 ☰ 菜单中操作。',
+          configure: '打开 Developer → Configure Third-Party Inference…，将 Inference provider 设为 Gateway。',
+          fill: 'Gateway base URL 填写下方的 base URL（不带 /v1），Gateway API key 填写你的密钥，认证方式保持 Bearer（默认）。',
+          apply: '点击 Apply Changes → Save & Restart，然后在登录界面选择第三方模式。Chat、Cowork 和 Code 都会走本网关。',
+          ccSwitch: '也可以让 CC Switch 替你写入 Claude Desktop 配置，之后重启 Claude Desktop。'
+        }
+      },
+      mobile: {
+        description: '在手机上通过 Chatbox（兼容 OpenAI 接口的聊天应用）使用此密钥。',
+        iosLink: 'Chatbox iOS 版（App Store）',
+        androidLink: 'Chatbox Android 版（Google Play）',
+        apkLink: 'Android APK（chatboxai.app）',
+        steps: {
+          unsupported: '官方 Claude 手机 App 无法使用自定义网关，请改用 Chatbox。',
+          provider: '在 Chatbox 中打开 设置 → 模型提供方 → 添加，类型选择“OpenAI API 兼容”。',
+          fill: '按下方的值填写 API 域名（不带 /v1）、API 路径和 API Key。',
+          model: '添加模型 ID（例如 claude-sonnet-5-5），然后点击“检查”测试连接。'
+        }
       }
     },
     customKeyLabel: '自定义密钥',

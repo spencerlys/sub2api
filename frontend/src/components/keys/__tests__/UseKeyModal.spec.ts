@@ -1,17 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, type Plugin } from 'vue'
 
-const { copyToClipboardMock, saveAsMock } = vi.hoisted(() => ({
+const { copyToClipboardMock, saveAsMock, i18nMode } = vi.hoisted(() => ({
   copyToClipboardMock: vi.fn().mockResolvedValue(true),
-  saveAsMock: vi.fn()
+  saveAsMock: vi.fn(),
+  i18nMode: { real: false }
 }))
 
-vi.mock('vue-i18n', () => ({
-  useI18n: () => ({
-    t: (key: string) => key
-  })
-}))
+vi.mock('vue-i18n', async () => {
+  const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
+  return {
+    ...actual,
+    useI18n: (...args: Parameters<typeof actual.useI18n>) =>
+      i18nMode.real ? actual.useI18n(...args) : { t: (key: string) => key }
+  }
+})
 
 vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({
@@ -69,7 +73,9 @@ describe('UseKeyModal', () => {
     expect(clientTabs()).toContain('keys.useKeyModal.cliTabs.claudeCode')
     expect(clientTabs()).not.toContain('keys.useKeyModal.cliTabs.codexCli')
     expect(clientTabs()).not.toContain('keys.useKeyModal.cliTabs.opencode')
-    expect(wrapper.find('pre code').text()).toContain('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')
+    expect(clientTabs()).not.toContain('keys.useKeyModal.cliTabs.claudeDesktop')
+    expect(clientTabs()).not.toContain('keys.useKeyModal.cliTabs.mobile')
+    expect(wrapper.findAll('pre code').map((code) => code.text()).join('\n')).toContain('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')
 
     await wrapper.setProps({ platform: 'openai' })
     expect(clientTabs()).toContain('keys.useKeyModal.cliTabs.claudeCode')
@@ -1109,4 +1115,187 @@ describe('UseKeyModal', () => {
       }
     }
   )
+})
+
+describe('UseKeyModal Claude clients guide', () => {
+  const stubs = {
+    BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
+    Icon: { template: '<span />' }
+  }
+
+  function mountAnthropic(extraProps: Record<string, unknown> = {}, plugins: Plugin[] = []) {
+    return mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-guide-test',
+        baseUrl: 'https://gateway.example.test/v1',
+        platform: 'anthropic' as const,
+        ...extraProps
+      },
+      global: { stubs, plugins }
+    })
+  }
+
+  type Wrapper = ReturnType<typeof mountAnthropic>
+  const codeBlocks = (wrapper: Wrapper) => wrapper.findAll('pre code').map((code) => code.text())
+  const allCode = (wrapper: Wrapper) => codeBlocks(wrapper).join('\n')
+  const hrefs = (wrapper: Wrapper) => wrapper.findAll('a').map((link) => link.attributes('href'))
+  const findButton = (wrapper: Wrapper, text: string) =>
+    wrapper.findAll('button').find((button) => button.text().trim() === text)
+
+  it('offers a CC Switch OS tab for Claude Code with the releases link and base URL', async () => {
+    for (const claudeCodeOnly of [false, true]) {
+      const wrapper = mountAnthropic({ claudeCodeOnly })
+      const osTabs = wrapper.find('nav[aria-label="Tabs"]').text()
+      expect(osTabs).toContain('macOS / Linux')
+      expect(osTabs).toContain('Windows CMD')
+      expect(osTabs).toContain('PowerShell')
+      expect(osTabs).toContain('keys.useKeyModal.cliTabs.ccSwitch')
+
+      await findButton(wrapper, 'keys.useKeyModal.cliTabs.ccSwitch')!.trigger('click')
+      await nextTick()
+
+      expect(hrefs(wrapper)).toContain('https://github.com/farion1231/cc-switch/releases')
+      const code = allCode(wrapper)
+      expect(codeBlocks(wrapper)).toContain('https://gateway.example.test')
+      expect(code).not.toContain('https://gateway.example.test/v1')
+      expect(codeBlocks(wrapper)).toContain('sk-guide-test')
+      expect(code).toContain('brew install --cask cc-switch')
+      expect(code).not.toContain('export ANTHROPIC_BASE_URL')
+      expect(wrapper.text()).toContain('keys.useKeyModal.ccSwitch.steps.installClaude')
+      expect(wrapper.text()).toContain('keys.useKeyModal.ccSwitch.steps.addProvider')
+      expect(wrapper.text()).toContain('keys.useKeyModal.ccSwitch.steps.desktop')
+    }
+  })
+
+  it('prepends the official Claude Code install command to every terminal tab', async () => {
+    const wrapper = mountAnthropic()
+    for (const [shell, install, envLine] of [
+      ['macOS / Linux', 'curl -fsSL https://claude.ai/install.sh | bash', 'export ANTHROPIC_AUTH_TOKEN="sk-guide-test"'],
+      ['Windows CMD', 'curl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd', 'set ANTHROPIC_AUTH_TOKEN=sk-guide-test'],
+      ['PowerShell', 'irm https://claude.ai/install.ps1 | iex', '$env:ANTHROPIC_AUTH_TOKEN="sk-guide-test"']
+    ]) {
+      if (shell !== 'macOS / Linux') {
+        await findButton(wrapper, shell)!.trigger('click')
+        await nextTick()
+      }
+      const blocks = codeBlocks(wrapper)
+      expect(blocks[0]).toContain(install)
+      expect(blocks[0]).toContain('npm install -g @anthropic-ai/claude-code')
+      // Alternatives are commented out so copying the block runs a single installer.
+      expect(blocks[0]).not.toMatch(/^npm install/m)
+      const code = blocks.join('\n')
+      expect(code).toContain('ANTHROPIC_BASE_URL')
+      expect(code).toContain('ANTHROPIC_AUTH_TOKEN')
+      expect(code).toContain(envLine)
+      expect(code).toContain('"$schema": "https://json.schemastore.org/claude-code-settings.json"')
+      expect(hrefs(wrapper)).toContain('https://code.claude.com/docs/en/setup')
+      expect(wrapper.text()).toContain('keys.useKeyModal.claudeInstall.steps.verify')
+    }
+    await findButton(wrapper, 'macOS / Linux')!.trigger('click')
+    await nextTick()
+    expect(codeBlocks(wrapper)[0]).toContain('brew install --cask claude-code')
+  })
+
+  it('shows a Claude Desktop gateway tab for the anthropic platform unless Claude Code-only', async () => {
+    const wrapper = mountAnthropic()
+    const clientNav = () => wrapper.find('nav[aria-label="Client"]').text()
+    expect(clientNav()).toContain('keys.useKeyModal.cliTabs.claudeDesktop')
+
+    await findButton(wrapper, 'keys.useKeyModal.cliTabs.claudeDesktop')!.trigger('click')
+    await nextTick()
+    expect(wrapper.find('nav[aria-label="Tabs"]').exists()).toBe(false)
+    expect(hrefs(wrapper)).toContain('https://claude.com/download')
+    expect(hrefs(wrapper)).toContain('https://claude.com/docs/third-party/claude-desktop/gateway')
+    expect(codeBlocks(wrapper)).toContain('https://gateway.example.test')
+    expect(codeBlocks(wrapper)).toContain('sk-guide-test')
+    expect(allCode(wrapper)).not.toContain('/v1')
+    expect(wrapper.text()).toContain('keys.useKeyModal.claudeDesktop.steps.developerMode')
+    expect(wrapper.text()).toContain('keys.useKeyModal.claudeDesktop.steps.ccSwitch')
+
+    await wrapper.setProps({ claudeCodeOnly: true })
+    expect(clientNav()).not.toContain('keys.useKeyModal.cliTabs.claudeDesktop')
+    expect(clientNav()).not.toContain('keys.useKeyModal.cliTabs.mobile')
+
+    const openai = mountAnthropic({ platform: 'openai', allowMessagesDispatch: true })
+    expect(openai.find('nav[aria-label="Client"]').text()).not.toContain('keys.useKeyModal.cliTabs.claudeDesktop')
+  })
+
+  it('guides mobile users to Chatbox with the chat completions path', async () => {
+    const wrapper = mountAnthropic()
+    await findButton(wrapper, 'keys.useKeyModal.cliTabs.mobile')!.trigger('click')
+    await nextTick()
+
+    expect(wrapper.find('nav[aria-label="Tabs"]').exists()).toBe(false)
+    expect(hrefs(wrapper)).toEqual(expect.arrayContaining([
+      'https://apps.apple.com/app/chatbox-ai/id6471368056',
+      'https://play.google.com/store/apps/details?id=xyz.chatboxapp.chatbox',
+      'https://chatboxai.app'
+    ]))
+    const blocks = codeBlocks(wrapper)
+    expect(blocks).toContain('/v1/chat/completions')
+    expect(blocks).toContain('https://gateway.example.test')
+    expect(blocks).toContain('claude-sonnet-5-5')
+    expect(blocks).toContain('sk-guide-test')
+    expect(wrapper.text()).toContain('keys.useKeyModal.mobile.steps.unsupported')
+  })
+
+  it.each(['en', 'zh'] as const)('renders every Claude client guide in %s without missing keys', async (locale) => {
+    const [{ createI18n }, { default: en }, { default: zh }] = await Promise.all([
+      vi.importActual<typeof import('vue-i18n')>('vue-i18n'),
+      import('@/i18n/locales/en'),
+      import('@/i18n/locales/zh')
+    ])
+    const { baseCompile } = await import('@intlify/message-compiler')
+    const missing: string[] = []
+    const compileErrors: string[] = []
+    // The test build of vue-i18n is runtime-only, so supply a minimal compiler
+    // that validates the message syntax and interpolates named placeholders.
+    const messageCompiler = (message: unknown, { key }: { key: string }) => {
+      if (typeof message !== 'string') return () => key
+      baseCompile(message, { onError: (err) => compileErrors.push(`${key}: ${err.message}`) })
+      return (ctx: { named: (name: string) => unknown }) =>
+        message.replace(/\{(\w+)\}/g, (_, name: string) => String(ctx.named(name) ?? ''))
+    }
+    const i18n = createI18n({
+      legacy: false,
+      locale,
+      messages: { en, zh },
+      missingWarn: false,
+      fallbackWarn: false,
+      messageCompiler: messageCompiler as never,
+      missing: (_locale: string, key: string) => {
+        missing.push(key)
+        return key
+      }
+    })
+    i18nMode.real = true
+    try {
+      const wrapper = mountAnthropic({}, [i18n])
+      const rendered: string[] = []
+      const clientLabels = wrapper.find('nav[aria-label="Client"]').findAll('button').map((b) => b.text().trim())
+      for (const clientLabel of clientLabels) {
+        await findButton(wrapper, clientLabel)!.trigger('click')
+        await nextTick()
+        const osNav = wrapper.find('nav[aria-label="Tabs"]')
+        const osLabels = osNav.exists() ? osNav.findAll('button').map((b) => b.text().trim()) : ['']
+        for (const osLabel of osLabels) {
+          if (osLabel) {
+            await findButton(wrapper, osLabel)!.trigger('click')
+            await nextTick()
+          }
+          rendered.push(wrapper.text())
+        }
+      }
+      const text = rendered.join('\n')
+      expect(missing).toEqual([])
+      expect(compileErrors).toEqual([])
+      expect(text).not.toMatch(/keys\.useKeyModal\./)
+      expect(text).toContain('CC Switch')
+      expect(text).toContain('Claude Desktop')
+      expect(text).toContain('Chatbox')
+    } finally {
+      i18nMode.real = false
+    }
+  })
 })

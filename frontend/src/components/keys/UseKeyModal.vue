@@ -133,6 +133,35 @@
           </nav>
         </div>
 
+        <!-- Step-by-step guide (desktop apps, mobile apps, installers) -->
+        <ol v-if="currentGuide.length" data-testid="use-key-guide" class="space-y-2.5">
+          <li
+            v-for="(step, index) in currentGuide"
+            :key="index"
+            class="flex items-start gap-3 text-sm text-gray-700 dark:text-gray-300"
+          >
+            <span class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-semibold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+              {{ index + 1 }}
+            </span>
+            <div class="min-w-0 space-y-1">
+              <p class="leading-5">{{ step.text }}</p>
+              <div v-if="step.links?.length" class="flex flex-wrap gap-x-4 gap-y-1">
+                <a
+                  v-for="link in step.links"
+                  :key="link.href"
+                  :href="link.href"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1 break-all text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
+                >
+                  {{ link.label }}
+                  <Icon name="externalLink" size="xs" class="flex-shrink-0" />
+                </a>
+              </div>
+            </div>
+          </li>
+        </ol>
+
         <!-- Code Blocks (Stacked for multi-file platforms) -->
         <div class="space-y-4">
           <div
@@ -308,6 +337,27 @@ interface FileConfig {
   highlighted?: string
 }
 
+interface GuideLink {
+  href: string
+  label: string
+}
+
+interface GuideStep {
+  text: string
+  links?: GuideLink[]
+}
+
+// Public third-party download and documentation pages used by the guides.
+const CLAUDE_CODE_SETUP_DOCS_URL = 'https://code.claude.com/docs/en/setup'
+const CC_SWITCH_REPO_URL = 'https://github.com/farion1231/cc-switch'
+const CC_SWITCH_RELEASES_URL = `${CC_SWITCH_REPO_URL}/releases`
+const CLAUDE_DESKTOP_DOWNLOAD_URL = 'https://claude.com/download'
+const CLAUDE_DESKTOP_GATEWAY_DOCS_URL = 'https://claude.com/docs/third-party/claude-desktop/gateway'
+const CHATBOX_IOS_URL = 'https://apps.apple.com/app/chatbox-ai/id6471368056'
+const CHATBOX_ANDROID_URL = 'https://play.google.com/store/apps/details?id=xyz.chatboxapp.chatbox'
+const CHATBOX_SITE_URL = 'https://chatboxai.app'
+const CHATBOX_EXAMPLE_MODEL = 'claude-sonnet-5-5'
+
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
@@ -461,6 +511,33 @@ const SparkleIcon = {
   }
 }
 
+const outlineIcon = (d: string): Component => ({
+  render() {
+    return h('svg', {
+      fill: 'none',
+      stroke: 'currentColor',
+      viewBox: '0 0 24 24',
+      'stroke-width': '1.5',
+      class: 'w-4 h-4'
+    }, [h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', d })])
+  }
+})
+
+const SwitchIcon = outlineIcon('M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5')
+const DesktopIcon = outlineIcon('M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25')
+const PhoneIcon = outlineIcon('M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3')
+
+// Claude Code install/CC Switch steps and the Claude Desktop / mobile tabs
+// only apply to native Anthropic groups.
+const isAnthropicPlatform = computed(() => props.platform === 'anthropic')
+const isClaudeAppTab = computed(() =>
+  isAnthropicPlatform.value &&
+  (activeClientTab.value === 'claude-desktop' || activeClientTab.value === 'mobile')
+)
+const isCcSwitchTab = computed(() =>
+  isAnthropicPlatform.value && activeClientTab.value === 'claude' && activeTab.value === 'ccswitch'
+)
+
 const clientTabs = computed((): TabConfig[] => {
   if (!props.platform) return []
   if (props.claudeCodeOnly) {
@@ -510,12 +587,22 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
-    default:
-      return [
-        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
+    default: {
+      const tabs: TabConfig[] = [
+        { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon }
+      ]
+      if (isAnthropicPlatform.value) {
+        tabs.push({ id: 'claude-desktop', label: t('keys.useKeyModal.cliTabs.claudeDesktop'), icon: DesktopIcon })
+      }
+      tabs.push(
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
-      ]
+      )
+      if (isAnthropicPlatform.value) {
+        tabs.push({ id: 'mobile', label: t('keys.useKeyModal.cliTabs.mobile'), icon: PhoneIcon })
+      }
+      return tabs
+    }
   }
 })
 
@@ -532,7 +619,7 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
-const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
+const showShellTabs = computed(() => activeClientTab.value !== 'opencode' && !isClaudeAppTab.value)
 
 const showCodexAuthMode = computed(() =>
   props.platform === 'openai' &&
@@ -543,6 +630,9 @@ const currentTabs = computed(() => {
   if (!showShellTabs.value) return []
   if (activeClientTab.value === 'codex' || activeClientTab.value === 'codex-ws' || activeClientTab.value === 'grok') {
     return openaiTabs
+  }
+  if (isAnthropicPlatform.value && activeClientTab.value === 'claude') {
+    return [...shellTabs, { id: 'ccswitch', label: t('keys.useKeyModal.cliTabs.ccSwitch'), icon: SwitchIcon }]
   }
   return shellTabs
 })
@@ -589,6 +679,12 @@ const platformDescription = computed(() => {
     case 'typesafe':
       return t('keys.useKeyModal.typesafe.description')
     default:
+      if (isCcSwitchTab.value) return t('keys.useKeyModal.ccSwitch.description')
+      if (isClaudeAppTab.value) {
+        return activeClientTab.value === 'mobile'
+          ? t('keys.useKeyModal.mobile.description')
+          : t('keys.useKeyModal.claudeDesktop.description')
+      }
       return t('keys.useKeyModal.description')
   }
 })
@@ -652,7 +748,84 @@ const platformNote = computed(() => {
   }
 })
 
-const showPlatformNote = computed(() => activeClientTab.value !== 'opencode')
+const showPlatformNote = computed(() =>
+  activeClientTab.value !== 'opencode' && !isClaudeAppTab.value && !isCcSwitchTab.value
+)
+
+const currentGuide = computed((): GuideStep[] => {
+  if (!isAnthropicPlatform.value) return []
+  switch (activeClientTab.value) {
+    case 'claude':
+      return isCcSwitchTab.value ? ccSwitchGuide() : claudeCodeInstallGuide()
+    case 'claude-desktop':
+      return claudeDesktopGuide()
+    case 'mobile':
+      return mobileGuide()
+    default:
+      return []
+  }
+})
+
+function claudeCodeInstallGuide(): GuideStep[] {
+  return [
+    {
+      text: t('keys.useKeyModal.claudeInstall.steps.install'),
+      links: [{ href: CLAUDE_CODE_SETUP_DOCS_URL, label: t('keys.useKeyModal.claudeInstall.docsLink') }]
+    },
+    { text: t('keys.useKeyModal.claudeInstall.steps.configure') },
+    { text: t('keys.useKeyModal.claudeInstall.steps.verify') }
+  ]
+}
+
+function ccSwitchGuide(): GuideStep[] {
+  return [
+    { text: t('keys.useKeyModal.ccSwitch.steps.installClaude') },
+    {
+      text: t('keys.useKeyModal.ccSwitch.steps.download'),
+      links: [
+        { href: CC_SWITCH_RELEASES_URL, label: t('keys.useKeyModal.ccSwitch.releasesLink') },
+        { href: CC_SWITCH_REPO_URL, label: 'farion1231/cc-switch' }
+      ]
+    },
+    { text: t('keys.useKeyModal.ccSwitch.steps.addProvider') },
+    { text: t('keys.useKeyModal.ccSwitch.steps.fill') },
+    { text: t('keys.useKeyModal.ccSwitch.steps.enable') },
+    { text: t('keys.useKeyModal.ccSwitch.steps.desktop') }
+  ]
+}
+
+function claudeDesktopGuide(): GuideStep[] {
+  return [
+    {
+      text: t('keys.useKeyModal.claudeDesktop.steps.download'),
+      links: [{ href: CLAUDE_DESKTOP_DOWNLOAD_URL, label: t('keys.useKeyModal.claudeDesktop.downloadLink') }]
+    },
+    { text: t('keys.useKeyModal.claudeDesktop.steps.developerMode') },
+    { text: t('keys.useKeyModal.claudeDesktop.steps.configure') },
+    { text: t('keys.useKeyModal.claudeDesktop.steps.fill') },
+    { text: t('keys.useKeyModal.claudeDesktop.steps.apply') },
+    {
+      text: t('keys.useKeyModal.claudeDesktop.steps.ccSwitch'),
+      links: [{ href: CLAUDE_DESKTOP_GATEWAY_DOCS_URL, label: t('keys.useKeyModal.claudeDesktop.docsLink') }]
+    }
+  ]
+}
+
+function mobileGuide(): GuideStep[] {
+  return [
+    {
+      text: t('keys.useKeyModal.mobile.steps.unsupported'),
+      links: [
+        { href: CHATBOX_IOS_URL, label: t('keys.useKeyModal.mobile.iosLink') },
+        { href: CHATBOX_ANDROID_URL, label: t('keys.useKeyModal.mobile.androidLink') },
+        { href: CHATBOX_SITE_URL, label: t('keys.useKeyModal.mobile.apkLink') }
+      ]
+    },
+    { text: t('keys.useKeyModal.mobile.steps.provider') },
+    { text: t('keys.useKeyModal.mobile.steps.fill') },
+    { text: t('keys.useKeyModal.mobile.steps.model') }
+  ]
+}
 
 function resetCodexModelManifest() {
   codexModelManifestController?.abort()
@@ -774,6 +947,16 @@ const currentFiles = computed((): FileConfig[] => {
     }
   }
 
+  if (isAnthropicPlatform.value) {
+    // Desktop/mobile apps and CC Switch take the gateway root without /v1.
+    if (activeClientTab.value === 'claude-desktop') return generateClaudeDesktopFiles(baseRoot, apiKey)
+    if (activeClientTab.value === 'mobile') return generateChatboxFiles(baseRoot, apiKey)
+    if (activeClientTab.value === 'claude') {
+      if (isCcSwitchTab.value) return generateCcSwitchFiles(baseRoot, apiKey)
+      return [generateClaudeCodeInstallFile(), ...generateAnthropicFiles(baseUrl, apiKey)]
+    }
+  }
+
   switch (props.platform) {
     case 'typesafe':
       return [generateSystemOneCurl(baseRoot, apiKey)]
@@ -869,6 +1052,52 @@ Invoke-RestMethod -Method Post -Uri "${endpoint}" -Headers $headers -ContentType
   -H "Content-Type: application/json" \\
   --data '${payload}'`
   }
+}
+
+// Official Claude Code installers; alternatives stay commented so copying the
+// block runs exactly one installer.
+function generateClaudeCodeInstallFile(): FileConfig {
+  const npmLine = `${t('keys.useKeyModal.claudeInstall.npmAlternative')}: npm install -g @anthropic-ai/claude-code`
+  let content: string
+  switch (activeTab.value) {
+    case 'cmd':
+      content = `curl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd
+REM ${npmLine}`
+      break
+    case 'powershell':
+      content = `irm https://claude.ai/install.ps1 | iex
+# ${npmLine}`
+      break
+    default:
+      content = `curl -fsSL https://claude.ai/install.sh | bash
+# ${t('keys.useKeyModal.claudeInstall.brewAlternative')}: brew install --cask claude-code
+# ${npmLine}`
+  }
+  return { path: t('keys.useKeyModal.claudeInstall.title'), content }
+}
+
+function generateCcSwitchFiles(baseRoot: string, apiKey: string): FileConfig[] {
+  return [
+    { path: t('keys.useKeyModal.ccSwitch.brewTitle'), content: 'brew install --cask cc-switch' },
+    { path: t('keys.useKeyModal.fields.endpointUrl'), content: baseRoot },
+    { path: t('keys.useKeyModal.fields.apiKey'), content: apiKey }
+  ]
+}
+
+function generateClaudeDesktopFiles(baseRoot: string, apiKey: string): FileConfig[] {
+  return [
+    { path: t('keys.useKeyModal.fields.gatewayBaseUrl'), content: baseRoot },
+    { path: t('keys.useKeyModal.fields.gatewayApiKey'), content: apiKey }
+  ]
+}
+
+function generateChatboxFiles(baseRoot: string, apiKey: string): FileConfig[] {
+  return [
+    { path: t('keys.useKeyModal.fields.apiHost'), content: baseRoot },
+    { path: t('keys.useKeyModal.fields.apiPath'), content: '/v1/chat/completions' },
+    { path: t('keys.useKeyModal.fields.apiKey'), content: apiKey },
+    { path: t('keys.useKeyModal.fields.modelId'), content: CHATBOX_EXAMPLE_MODEL }
+  ]
 }
 
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
