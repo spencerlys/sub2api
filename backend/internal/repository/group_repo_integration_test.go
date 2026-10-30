@@ -252,6 +252,49 @@ func (s *GroupRepoSuite) TestUpdate() {
 	s.Require().Equal("updated", got.Name)
 }
 
+// 号主分成倍率：创建写入覆盖全部历史的初始记录；修改与分组更新同一事务追加“自此生效”的记录，值不变时不追加。
+func (s *GroupRepoSuite) TestOwnerPayoutMultiplierHistory() {
+	group := &service.Group{
+		Name:                  "owner-payout",
+		Platform:              service.PlatformAnthropic,
+		RateMultiplier:        1.0,
+		OwnerPayoutMultiplier: 0.9,
+		Status:                service.StatusActive,
+		SubscriptionType:      service.SubscriptionTypeStandard,
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, group))
+	history := func() []string {
+		rows, err := s.tx.QueryContext(s.ctx, `SELECT multiplier::text || CASE WHEN effective_from = '-infinity' THEN '@-inf' ELSE '@now' END
+FROM group_owner_payout_multiplier_history WHERE group_id = $1 ORDER BY effective_from, id`, group.ID)
+		s.Require().NoError(err)
+		defer func() { _ = rows.Close() }()
+		var out []string
+		for rows.Next() {
+			var v string
+			s.Require().NoError(rows.Scan(&v))
+			out = append(out, v)
+		}
+		s.Require().NoError(rows.Err())
+		return out
+	}
+	s.Require().Equal([]string{"0.9000@-inf"}, history())
+
+	got, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().InDelta(0.9, got.OwnerPayoutMultiplier, 1e-9)
+
+	got.Name = "owner-payout-renamed"
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+	s.Require().Equal([]string{"0.9000@-inf"}, history(), "unchanged rate: no history row")
+
+	got.OwnerPayoutMultiplier = 1.1
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+	s.Require().Equal([]string{"0.9000@-inf", "1.1000@now"}, history())
+	reloaded, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().InDelta(1.1, reloaded.OwnerPayoutMultiplier, 1e-9)
+}
+
 func (s *GroupRepoSuite) TestI18n_RoundTrip() {
 	group := &service.Group{
 		Name:             "i18n-roundtrip",

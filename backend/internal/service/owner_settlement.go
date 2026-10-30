@@ -13,8 +13,10 @@ import (
 
 // AI 账号所有者结算（精确账本口径，见 usage_cost_ledger.go）：
 //   - 账户成本 = COALESCE(account_stats_cost, total_cost) × COALESCE(account_rate_multiplier, 1)（官方价 × 账户倍率）；
-//   - 每次请求的所有者收益 = 账户成本 × paid_cost / actual_cost（actual_cost > 0 时，否则为 0），
-//     paid_cost 为该请求由实付余额（在线支付、线下实收）承担的部分；赠送部分对应的账户成本只作参考，不计入应付；
+//   - 每次请求的所有者收益 = 账户成本 × 号主分成倍率 × paid_cost / actual_cost（actual_cost > 0 时，否则为 0），
+//     号主分成倍率取请求发生时其分组生效的值（groups.owner_payout_multiplier 的历史，无分组为 1），
+//     paid_cost 为该请求由实付余额（在线支付、线下实收）承担的部分；
+//   - 内部使用（赠送）账户成本 = 账户成本 × 号主分成倍率 − 收益，只作参考，不计入应付；
 //   - 账本任务尚未拆分的请求计为待结算（pending），不估算、不计入收益；
 //   - 未结 = 历史累计收益 − 已打款（未删除的 owner_payouts）。
 //
@@ -48,6 +50,7 @@ type OwnerSettlementUsage struct {
 	PaidCost           float64
 	GiftCost           float64
 	AccountCost        float64
+	PayoutBase         float64
 	Earnings           float64
 	GiftAccountCost    float64
 	PendingRequests    int64
@@ -140,7 +143,10 @@ type OwnerSettlementAmounts struct {
 	PaidCost    float64 `json:"paid_cost"`
 	GiftCost    float64 `json:"gift_cost"`
 	AccountCost float64 `json:"account_cost"`
-	// Earnings 应付所有者；GiftAccountCost 为赠送资助的账户成本，仅供参考，不计入应付。
+	// PayoutBase 分成基数 = 账户成本 × 号主分成倍率（按请求时的分组倍率），只计已拆分的请求；
+	// 恒有 PayoutBase − GiftAccountCost = Earnings。只给管理员（所有者本人汇总不含，以免反推倍率）。
+	PayoutBase float64 `json:"payout_base"`
+	// Earnings 应付所有者；GiftAccountCost 为内部使用（赠送资助）的账户成本（同按号主分成倍率），仅供参考，不计入应付。
 	Earnings           float64 `json:"earnings"`
 	GiftAccountCost    float64 `json:"gift_account_cost"`
 	PendingRequests    int64   `json:"pending_requests"`
@@ -158,6 +164,7 @@ func (a *OwnerSettlementAmounts) add(b OwnerSettlementAmounts) {
 	a.PaidCost += b.PaidCost
 	a.GiftCost += b.GiftCost
 	a.AccountCost += b.AccountCost
+	a.PayoutBase += b.PayoutBase
 	a.Earnings += b.Earnings
 	a.GiftAccountCost += b.GiftAccountCost
 	a.PendingRequests += b.PendingRequests
@@ -329,6 +336,7 @@ func (s *OwnerSettlementService) GetOwnerSettlements(ctx context.Context, period
 		r.PaidCost += u.PaidCost
 		r.GiftCost += u.GiftCost
 		r.AccountCost += u.AccountCost
+		r.PayoutBase += u.PayoutBase
 		r.Earnings += u.Earnings
 		r.GiftAccountCost += u.GiftAccountCost
 		r.PendingRequests += u.PendingRequests

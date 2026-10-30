@@ -85,6 +85,11 @@ func RateMultiplier(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRateMultiplier, v))
 }
 
+// OwnerPayoutMultiplier applies equality check predicate on the "owner_payout_multiplier" field. It's identical to OwnerPayoutMultiplierEQ.
+func OwnerPayoutMultiplier(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldOwnerPayoutMultiplier, v))
+}
+
 // PeakRateEnabled applies equality check predicate on the "peak_rate_enabled" field. It's identical to PeakRateEnabledEQ.
 func PeakRateEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldPeakRateEnabled, v))
@@ -663,6 +668,46 @@ func RateMultiplierLT(v float64) predicate.Group {
 // RateMultiplierLTE applies the LTE predicate on the "rate_multiplier" field.
 func RateMultiplierLTE(v float64) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldRateMultiplier, v))
+}
+
+// OwnerPayoutMultiplierEQ applies the EQ predicate on the "owner_payout_multiplier" field.
+func OwnerPayoutMultiplierEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldOwnerPayoutMultiplier, v))
+}
+
+// OwnerPayoutMultiplierNEQ applies the NEQ predicate on the "owner_payout_multiplier" field.
+func OwnerPayoutMultiplierNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldOwnerPayoutMultiplier, v))
+}
+
+// OwnerPayoutMultiplierIn applies the In predicate on the "owner_payout_multiplier" field.
+func OwnerPayoutMultiplierIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldOwnerPayoutMultiplier, vs...))
+}
+
+// OwnerPayoutMultiplierNotIn applies the NotIn predicate on the "owner_payout_multiplier" field.
+func OwnerPayoutMultiplierNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldOwnerPayoutMultiplier, vs...))
+}
+
+// OwnerPayoutMultiplierGT applies the GT predicate on the "owner_payout_multiplier" field.
+func OwnerPayoutMultiplierGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldOwnerPayoutMultiplier, v))
+}
+
+// OwnerPayoutMultiplierGTE applies the GTE predicate on the "owner_payout_multiplier" field.
+func OwnerPayoutMultiplierGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldOwnerPayoutMultiplier, v))
+}
+
+// OwnerPayoutMultiplierLT applies the LT predicate on the "owner_payout_multiplier" field.
+func OwnerPayoutMultiplierLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldOwnerPayoutMultiplier, v))
+}
+
+// OwnerPayoutMultiplierLTE applies the LTE predicate on the "owner_payout_multiplier" field.
+func OwnerPayoutMultiplierLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldOwnerPayoutMultiplier, v))
 }
 
 // PeakRateEnabledEQ applies the EQ predicate on the "peak_rate_enabled" field.

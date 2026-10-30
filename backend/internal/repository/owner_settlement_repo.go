@@ -32,6 +32,31 @@ const balanceSourceSQL = `lower(COALESCE(substring(COALESCE(rc.notes, '') FROM '
 // accountCostSQL 账户成本（官方价 × 账户倍率），与用量统计口径一致。
 const accountCostSQL = `COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)`
 
+// 所有者应付口径（结算、我的结算、账号健康、用量明细与统计共用以下三个片段）：
+//   - 号主分成基数 = 账户成本 × 号主分成倍率（请求发生时其分组生效的倍率，无分组或无历史为 1）；
+//   - 应付 = 号主分成基数 × paid_cost / actual_cost（已拆分且 actual_cost > 0，否则为 0）；
+//   - 内部使用（赠送）账户成本 = 号主分成基数 − 应付（仅已拆分的请求）。
+//
+// ownerPayoutJoinSQL 以 LATERAL 关联倍率历史（别名 opm，每行一次索引查找）；u 为 usage_logs 或含
+// group_id、created_at 列的派生表的别名。索引：group_owner_payout_multiplier_history_group_effective。
+func ownerPayoutJoinSQL(u string) string {
+	return `LEFT JOIN LATERAL (
+  SELECT h.multiplier FROM group_owner_payout_multiplier_history h
+  WHERE h.group_id = ` + u + `.group_id AND h.effective_from <= ` + u + `.created_at
+  ORDER BY h.effective_from DESC, h.id DESC LIMIT 1) opm ON TRUE`
+}
+
+// payoutBaseSQL 号主分成基数；accountCost 为账户成本表达式，须与 ownerPayoutJoinSQL 同用。
+func payoutBaseSQL(accountCost string) string {
+	return `((` + accountCost + `) * COALESCE(opm.multiplier, 1))`
+}
+
+// ownerEarningsSQL 单次请求的所有者应付；split 为 usage_cost_splits 的别名（LEFT JOIN，未拆分时为 0）。
+func ownerEarningsSQL(accountCost, split string) string {
+	return `(CASE WHEN ` + split + `.actual_cost > 0
+  THEN ` + payoutBaseSQL(accountCost) + ` * ` + split + `.paid_cost / ` + split + `.actual_cost ELSE 0 END)`
+}
+
 // creditRowsSQL 全部余额入账明细（正负均含）：
 //   - redeem_codes(type=balance) 能按 recharge_code 关联到支付订单的为在线支付（value=amount，含 bonus_amount 赠送部分），
 //     其余已使用的 balance 码为发放的兑换码；
@@ -86,13 +111,10 @@ ORDER BY u.id`, nullableID(ownerUserID))
 	return out, rows.Err()
 }
 
-// splitEarningsSQL 单次请求的所有者收益：已拆分且 actual_cost > 0 时为 账户成本 × paid_cost / actual_cost，否则为 0。
-// 依赖别名 ul（usage_logs）与 s（usage_cost_splits，LEFT JOIN）。
-const splitEarningsSQL = `CASE WHEN s.usage_log_id IS NOT NULL AND s.actual_cost > 0
-  THEN (` + accountCostSQL + `) * s.paid_cost / s.actual_cost ELSE 0 END`
-
 // AggregateOwnerSettlement 按所有者聚合 [start,end) 内的请求数、官方价、应收（actual_cost）、实付/赠送拆分、账户成本、
-// 收益、赠送资助的账户成本与待结算，以及历史累计收益。用量归属按账户当前所有者计算；请求用户不出现在结果中。
+// 分成基数、收益、内部使用（赠送资助）的账户成本与待结算，以及历史累计收益；收益口径见 ownerPayoutJoinSQL。
+// 分成基数与内部使用成本只计已拆分的请求，保证 分成基数 − 内部使用成本 = 收益。
+// 用量归属按账户当前所有者计算；请求用户不出现在结果中。
 // 索引：idx_usage_logs_account_created_at (account_id, created_at)；拆分按主键关联。
 func (r *ownerSettlementRepository) AggregateOwnerSettlement(ctx context.Context, start, end time.Time, ownerUserID *int64) (out []service.OwnerSettlementUsage, err error) {
 	rows, err := r.sql.QueryContext(ctx, `
@@ -102,10 +124,12 @@ WITH u AS (
     (s.usage_log_id IS NULL) AS pending,
     ul.total_cost, ul.actual_cost, s.paid_cost, s.gift_cost,
     (`+accountCostSQL+`) AS account_cost,
-    (`+splitEarningsSQL+`) AS earnings
+    `+payoutBaseSQL(accountCostSQL)+` AS payout_base,
+    `+ownerEarningsSQL(accountCostSQL, "s")+` AS earnings
   FROM usage_logs ul
   JOIN accounts a ON a.id = ul.account_id
   LEFT JOIN usage_cost_splits s ON s.usage_log_id = ul.id
+  `+ownerPayoutJoinSQL("ul")+`
   WHERE a.owner_user_id IS NOT NULL
     AND ($3::bigint IS NULL OR a.owner_user_id = $3)
 )
@@ -116,8 +140,9 @@ SELECT owner_user_id,
   COALESCE(SUM(paid_cost) FILTER (WHERE in_range), 0)::double precision,
   COALESCE(SUM(gift_cost) FILTER (WHERE in_range), 0)::double precision,
   COALESCE(SUM(account_cost) FILTER (WHERE in_range), 0)::double precision,
+  COALESCE(SUM(payout_base) FILTER (WHERE in_range AND NOT pending), 0)::double precision,
   COALESCE(SUM(earnings) FILTER (WHERE in_range), 0)::double precision,
-  COALESCE(SUM(account_cost - earnings) FILTER (WHERE in_range AND NOT pending), 0)::double precision,
+  COALESCE(SUM(payout_base - earnings) FILTER (WHERE in_range AND NOT pending), 0)::double precision,
   COUNT(*) FILTER (WHERE in_range AND pending),
   COALESCE(SUM(account_cost) FILTER (WHERE in_range AND pending), 0)::double precision,
   COALESCE(SUM(earnings), 0)::double precision
@@ -130,7 +155,7 @@ GROUP BY owner_user_id`, start, end, nullableID(ownerUserID))
 	for rows.Next() {
 		var u service.OwnerSettlementUsage
 		if err := rows.Scan(&u.OwnerUserID, &u.Requests, &u.OfficialCost, &u.UserBilled, &u.PaidCost, &u.GiftCost,
-			&u.AccountCost, &u.Earnings, &u.GiftAccountCost, &u.PendingRequests, &u.PendingAccountCost, &u.EarningsAllTime); err != nil {
+			&u.AccountCost, &u.PayoutBase, &u.Earnings, &u.GiftAccountCost, &u.PendingRequests, &u.PendingAccountCost, &u.EarningsAllTime); err != nil {
 			return nil, err
 		}
 		out = append(out, u)

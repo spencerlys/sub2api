@@ -140,17 +140,27 @@ func GroupFromService(g *service.Group) *Group {
 	return GroupFromServiceShallow(g)
 }
 
+// ForOwner 去掉所有者不可见的管理字段（号主分成倍率）。
+func (g *AdminGroup) ForOwner() *AdminGroup {
+	if g != nil {
+		g.OwnerPayoutMultiplier = nil
+	}
+	return g
+}
+
 // GroupFromServiceAdmin converts a service Group to DTO for admin users.
 // It includes internal fields like model_routing and account_count.
 func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 	if g == nil {
 		return nil
 	}
+	ownerPayoutMultiplier := g.OwnerPayoutMultiplier
 	out := &AdminGroup{
 		Group:                       groupFromServiceBase(g),
 		OwnerUserID:                 g.OwnerUserID,
 		ForceOpenAIFast:             g.ForceOpenAIFast,
 		FreeOpenAIFast:              g.FreeOpenAIFast,
+		OwnerPayoutMultiplier:       &ownerPayoutMultiplier,
 		ProfitControlEnabled:        g.ProfitControlEnabled,
 		ProfitMinMargin:             g.ProfitMinMargin,
 		ProfitSafetyBuffer:          g.ProfitSafetyBuffer,

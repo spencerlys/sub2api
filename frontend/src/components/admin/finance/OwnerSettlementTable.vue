@@ -74,8 +74,9 @@ import { formatNumber } from '@/utils/format'
 import { formatPreciseUSD } from '@/utils/preciseMoney'
 
 // Per-owner settlement. `earnings` (payable) is what the owner is owed: the
-// account cost of paid use only. `gift_account_cost` (internal-use cost) is
-// never added to anything payable.
+// account cost of paid use × the group's owner payout rate at request time.
+// `gift_account_cost` (internal-use cost, same payout basis) is never added to
+// anything payable.
 withDefaults(
   defineProps<{
     items: OwnerSettlementRow[]
@@ -89,7 +90,7 @@ const emit = defineEmits<{ (e: 'record-payout', row: OwnerSettlementRow): void }
 
 const { t } = useI18n()
 
-type ColumnKey = Exclude<keyof OwnerSettlementTotals, 'pending_requests' | 'pending_account_cost'>
+type ColumnKey = Exclude<keyof OwnerSettlementTotals, 'pending_requests' | 'pending_account_cost' | 'account_cost'>
 
 interface Column {
   key: ColumnKey
@@ -102,7 +103,9 @@ const count = (v: number) => formatNumber(v ?? 0)
 const money = (v: number) => formatPreciseUSD(v)
 
 // Reads left to right: who → usage → billed to users (paid + internal) →
-// account cost − internal-use cost = payable this period → all-time − paid out = unpaid.
+// payout basis − internal-use cost = payable this period → all-time − paid out = unpaid.
+// account_cost stays in the API but is not shown: with a group payout rate ≠ 1 it no longer
+// adds up with internal-use cost and payable.
 const columns = computed<Column[]>(() => [
   { key: 'active_accounts', label: t('admin.finance.settlement.activeAccounts'), hint: t('admin.finance.settlement.hints.activeAccounts'), format: count },
   { key: 'requests', label: t('admin.finance.settlement.requests'), format: count },
@@ -110,7 +113,7 @@ const columns = computed<Column[]>(() => [
   { key: 'user_billed', label: t('admin.finance.settlement.userBilled'), hint: t('admin.finance.settlement.hints.userBilled'), format: money },
   { key: 'paid_cost', label: t('admin.finance.settlement.paidCost'), hint: t('admin.finance.settlement.hints.paidCost'), format: money },
   { key: 'gift_cost', label: t('admin.finance.settlement.giftCost'), hint: t('admin.finance.settlement.hints.giftCost'), format: money },
-  { key: 'account_cost', label: t('admin.finance.settlement.accountCost'), hint: t('admin.finance.settlement.hints.accountCost'), format: money },
+  { key: 'payout_base', label: t('admin.finance.settlement.payoutBase'), hint: t('admin.finance.settlement.hints.payoutBase'), format: money },
   {
     key: 'gift_account_cost',
     label: t('admin.finance.settlement.giftAccountCost'),

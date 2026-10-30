@@ -81,30 +81,32 @@ SELECT agg.account_id, agg.total, agg.rate_limit, agg.overloaded, agg.auth, agg.
 FROM agg
 JOIN last ON last.account_id = agg.account_id`
 
-// accountHealthUsageQuery 成功请求聚合；TTFT 只取流式请求。官方价、账户成本与按精确账本（usage_cost_splits）的应付：
-// 拆分以 LATERAL 子查询按主键关联，只暴露金额列，不引入用户身份。
+// accountHealthAccountCostSQL 账户成本（与 accountCostSQL 同口径，本查询的 usage_logs 不带别名）。
+const accountHealthAccountCostSQL = `COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)`
+
+// accountHealthUsageQuery 成功请求聚合；TTFT 只取流式请求。官方价、账户成本与按精确账本（usage_cost_splits）的应付
+// （口径见 ownerPayoutJoinSQL）：拆分以 LATERAL 子查询按主键关联，只暴露金额列，不引入用户身份。
 // 索引：idx_usage_logs_account_created_at (account_id, created_at)。
-const accountHealthUsageQuery = `
+var accountHealthUsageQuery = `
 SELECT account_id,
   COUNT(*) AS requests_ok,
   COALESCE(SUM(input_tokens), 0) AS tokens_in,
   COALESCE(SUM(output_tokens), 0) AS tokens_out,
   COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) AS tokens_cache,
-  COALESCE(SUM(actual_cost), 0) AS cost,
+  COALESCE(SUM(usage_logs.actual_cost), 0) AS cost,
   percentile_cont(0.50) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE stream AND first_token_ms IS NOT NULL) AS ttft_p50,
   percentile_cont(0.95) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE stream AND first_token_ms IS NOT NULL) AS ttft_p95,
   percentile_cont(0.50) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE duration_ms IS NOT NULL) AS duration_p50,
   MAX(created_at) AS last_success_at,
   COALESCE(SUM(total_cost), 0) AS official_cost,
-  COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) AS account_cost,
-  COALESCE(SUM(CASE WHEN sp.split_actual > 0
-    THEN COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) * sp.paid_cost / sp.split_actual
-    ELSE 0 END), 0) AS earnings,
+  COALESCE(SUM(` + accountHealthAccountCostSQL + `), 0) AS account_cost,
+  COALESCE(SUM(` + ownerEarningsSQL(accountHealthAccountCostSQL, "sp") + `), 0) AS earnings,
   COUNT(*) FILTER (WHERE sp.paid_cost IS NULL) AS pending_requests
 FROM usage_logs
 LEFT JOIN LATERAL (
-  SELECT s.paid_cost, s.actual_cost AS split_actual FROM usage_cost_splits s WHERE s.usage_log_id = usage_logs.id
+  SELECT s.paid_cost, s.actual_cost FROM usage_cost_splits s WHERE s.usage_log_id = usage_logs.id
 ) sp ON TRUE
+` + ownerPayoutJoinSQL("usage_logs") + `
 WHERE account_id = ANY($1)
   AND created_at >= $2 AND created_at < $3
 GROUP BY account_id`

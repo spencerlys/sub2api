@@ -12,6 +12,8 @@ vi.mock('vue-i18n', async () => {
 })
 
 import OwnerSettlementTable from '../OwnerSettlementTable.vue'
+import enFinance from '@/i18n/locales/en/admin/finance'
+import zhFinance from '@/i18n/locales/zh/admin/finance'
 import type { OwnerSettlementRow, OwnerSettlementTotals } from '@/api/admin/finance'
 
 enableAutoUnmount(afterEach)
@@ -23,7 +25,8 @@ const totals: OwnerSettlementTotals = {
   user_billed: 150,
   paid_cost: 100,
   gift_cost: 50,
-  account_cost: 120,
+  account_cost: 130,
+  payout_base: 120,
   earnings: 80,
   gift_account_cost: 40,
   pending_requests: 0,
@@ -44,7 +47,7 @@ const COLUMNS = [
   'user_billed',
   'paid_cost',
   'gift_cost',
-  'account_cost',
+  'payout_base',
   'gift_account_cost',
   'earnings',
   'earnings_all_time',
@@ -53,7 +56,7 @@ const COLUMNS = [
 ]
 
 describe('OwnerSettlementTable', () => {
-  it('orders columns: usage, billed to users, account cost − internal use = payable, settlement', () => {
+  it('orders columns: usage, billed to users, payout basis − internal use = payable, settlement', () => {
     const wrapper = mount(OwnerSettlementTable, { props: { items: [row()], totals } })
     const order = wrapper
       .findAll('[data-testid^="settlement-col-"]')
@@ -100,6 +103,33 @@ describe('OwnerSettlementTable', () => {
     const payable = wrapper.get('[data-testid="settlement-totals"] [data-testid="settlement-cell-earnings"]')
     expect(payable.text()).toBe('$80.0000')
     expect(payable.text()).not.toContain('120')
+  })
+
+  it('shows the payout basis instead of account cost, and basis − internal use = payable', () => {
+    const wrapper = mount(OwnerSettlementTable, { props: { items: [row()], totals } })
+    expect(wrapper.find('[data-testid="settlement-col-account_cost"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('$130')
+
+    const header = wrapper.get('[data-testid="settlement-col-payout_base"]')
+    expect(header.text()).toBe('admin.finance.settlement.payoutBase')
+    expect(header.attributes('title')).toBe('admin.finance.settlement.hints.payoutBase')
+
+    const r = wrapper.get('[data-testid="settlement-row-3"]')
+    const basis = r.get('[data-testid="settlement-cell-payout_base"]').text()
+    expect(basis).toBe('$120.00')
+    const parse = (s: string) => Number(s.replace(/[$,]/g, ''))
+    const gift = parse(r.get('[data-testid="settlement-cell-gift_account_cost"]').text())
+    const payable = parse(r.get('[data-testid="settlement-cell-earnings"]').text())
+    expect(parse(basis) - gift).toBeCloseTo(payable, 9)
+    const foot = wrapper.get('[data-testid="settlement-totals"]')
+    expect(foot.get('[data-testid="settlement-cell-payout_base"]').text()).toBe('$120.00')
+  })
+
+  it('has bilingual payout-basis copy', () => {
+    expect(zhFinance.finance.settlement.payoutBase).toBe('分成基数')
+    expect(zhFinance.finance.settlement.hints.payoutBase).toBe('官方价 × 号主分成倍率（按请求时的分组倍率）')
+    expect(enFinance.finance.settlement.payoutBase).toBe('Payout basis')
+    expect(enFinance.finance.settlement.hints.payoutBase).toContain('owner payout rate')
   })
 
   it('never shows routine pending requests under the request count', () => {

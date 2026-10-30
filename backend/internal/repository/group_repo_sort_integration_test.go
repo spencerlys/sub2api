@@ -109,3 +109,18 @@ func (s *GroupRepoSuite) TestList_SortBySortOrderDesc() {
 	s.Require().Contains(indexByID, g2.ID)
 	s.Require().Less(indexByID[g2.ID], indexByID[g1.ID])
 }
+
+func (s *GroupRepoSuite) TestList_SortByOwnerPayoutMultiplier() {
+	low := &service.Group{Name: "payout-low", Platform: service.PlatformAnthropic, RateMultiplier: 1, OwnerPayoutMultiplier: 0.5, Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeStandard}
+	high := &service.Group{Name: "payout-high", Platform: service.PlatformAnthropic, RateMultiplier: 1, OwnerPayoutMultiplier: 2, Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeStandard}
+	s.Require().NoError(s.repo.Create(s.ctx, low))
+	s.Require().NoError(s.repo.Create(s.ctx, high))
+
+	groups, _, err := s.repo.List(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 100, SortBy: "owner_payout_multiplier", SortOrder: "desc"})
+	s.Require().NoError(err)
+	indexByID := make(map[int64]int, len(groups))
+	for i, g := range groups {
+		indexByID[g.ID] = i
+	}
+	s.Require().Less(indexByID[high.ID], indexByID[low.ID])
+}

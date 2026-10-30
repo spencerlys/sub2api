@@ -27,6 +27,7 @@ const totals = {
   paid_cost: 0.6,
   gift_cost: 0.2,
   account_cost: 0.5,
+  payout_base: 0.5,
   earnings: 0.375,
   gift_account_cost: 0.125,
   pending_requests: 4,

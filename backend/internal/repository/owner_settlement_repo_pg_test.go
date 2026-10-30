@@ -22,7 +22,7 @@ import (
 )
 
 // 只使用显式指定的隔离测试数据库（OWNER_SETTLEMENT_TEST_DSN），每次创建并清理独立 schema。
-// 只建结算与账本查询涉及的列；owner_payouts 与成本账本使用真实迁移 252、253。
+// 只建结算与账本查询涉及的列；owner_payouts、成本账本与号主分成倍率使用真实迁移 252、253、254。
 func ownerSettlementTestDB(t *testing.T) (*sql.DB, *dbent.Client) {
 	t.Helper()
 	dsn := os.Getenv("OWNER_SETTLEMENT_TEST_DSN")
@@ -58,9 +58,11 @@ CREATE TABLE payment_orders(id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, r
   paid_at TIMESTAMPTZ, completed_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE TABLE promo_code_usages(id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, bonus_amount DECIMAL(20,8) NOT NULL, used_at TIMESTAMPTZ NOT NULL);
 CREATE TABLE user_affiliate_ledger(id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, action TEXT NOT NULL, amount DECIMAL(20,8) NOT NULL, created_at TIMESTAMPTZ NOT NULL);
+CREATE TABLE groups(id BIGINT PRIMARY KEY, deleted_at TIMESTAMPTZ);
+INSERT INTO groups(id) VALUES (77), (78), (79);
 `)
 	require.NoError(t, err)
-	for _, name := range []string{"252_owner_payouts.sql", "253_usage_cost_ledger.sql"} {
+	for _, name := range []string{"252_owner_payouts.sql", "253_usage_cost_ledger.sql", "254_group_owner_payout_multiplier.sql"} {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", name))
 		require.NoError(t, err)
 		_, err = db.Exec(string(migration))
@@ -250,6 +252,7 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	require.InDelta(t, 10, a.AccountCost, 1e-9)
 	require.InDelta(t, 0, a.Earnings, 1e-9, "both February requests were funded by gift credit")
 	require.InDelta(t, 10, a.GiftAccountCost, 1e-9)
+	require.InDelta(t, 10, a.PayoutBase, 1e-9, "group rate 1: payout basis equals account cost")
 	require.Zero(t, a.PendingRequests)
 	require.InDelta(t, 2, a.EarningsAllTime, 1e-9, "January usage of 102 funded by offline cash: account cost 2")
 	require.InDelta(t, 1.5, a.PaidTotal, 1e-9, "soft-deleted payouts are excluded")
@@ -265,8 +268,10 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	require.InDelta(t, 73, b.AccountCost, 1e-9)
 	require.InDelta(t, 15, b.Earnings, 1e-9, "10 (mixed) + 5 (paid subscription); unfunded usage of 104 earns nothing")
 	require.InDelta(t, 58, b.GiftAccountCost, 1e-9)
+	require.InDelta(t, 73, b.PayoutBase, 1e-9)
 	require.InDelta(t, 15, b.Unpaid, 1e-9)
 	require.Equal(t, int64(7), report.Totals.Requests)
+	requirePayoutBasisInvariant(t, report)
 
 	all, err := svc.ParsePeriod(service.ReportRangeAll, "", "")
 	require.NoError(t, err)
@@ -311,6 +316,8 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	require.Equal(t, int64(1), report.Items[1].PendingRequests)
 	require.InDelta(t, 1, report.Items[1].PendingAccountCost, 1e-9)
 	require.InDelta(t, 15, report.Items[1].Earnings, 1e-9)
+	require.InDelta(t, 73, report.Items[1].PayoutBase, 1e-9, "pending rows are not in the payout basis until split")
+	requirePayoutBasisInvariant(t, report)
 	fin, err := svc.GetFinanceSummary(ctx, febPeriod())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), fin.Consumption.PendingRequests)
@@ -428,6 +435,15 @@ func TestOwnerSettlementPostgresEndToEnd(t *testing.T) {
 	require.ErrorIs(t, err, service.ErrBalanceRecordNotFound)
 }
 
+// 分成基数 − 内部调用成本 = 本期应付（逐行与合计）。
+func requirePayoutBasisInvariant(t *testing.T, report *service.OwnerSettlementReport) {
+	t.Helper()
+	for _, r := range report.Items {
+		require.InDelta(t, r.Earnings, r.PayoutBase-r.GiftAccountCost, 1e-9, "owner %d", r.OwnerUserID)
+	}
+	require.InDelta(t, report.Totals.Earnings, report.Totals.PayoutBase-report.Totals.GiftAccountCost, 1e-9)
+}
+
 func decimalPrefix(state string) string {
 	for i, ch := range state {
 		if ch == '/' {
@@ -435,4 +451,145 @@ func decimalPrefix(state string) string {
 		}
 	}
 	return state
+}
+
+// 号主分成倍率按请求时间取值：期间中途修改后，之前的请求按旧值、之后的按新值；无分组的请求按 1。
+func TestOwnerPayoutMultiplierHistoryPostgres(t *testing.T) {
+	db, client := ownerSettlementTestDB(t)
+	ctx := context.Background()
+	_, err := db.Exec(`
+INSERT INTO users(id, email, username, role) VALUES
+  (10, 'owner-a@example.com', 'owner-a', 'owner'), (101, 'paid@example.com', '', 'user'), (102, 'mixed@example.com', '', 'user');
+INSERT INTO accounts(id, owner_user_id) VALUES (1000, 10), (3000, NULL);
+-- 101 线下实收 100（全部实付）；102 线下实收 5 + 赠送 5（先扣赠送）。
+INSERT INTO redeem_codes(code, type, value, status, used_by, used_at, notes) VALUES
+  ('ADJ-P', 'admin_balance', 100, 'used', 101, '2026-01-15 12:00:00+00', '[src:offline] cash'),
+  ('ADJ-M1', 'admin_balance', 5, 'used', 102, '2026-01-15 12:00:00+00', '[src:offline] cash'),
+  ('ADJ-M2', 'admin_balance', 5, 'used', 102, '2026-01-15 12:00:00+00', 'welcome');
+-- 分组 79 于 2 月 10 日 14:00 起改为 0.8（迁移已为其写入 1 的初始记录）。
+INSERT INTO group_owner_payout_multiplier_history(group_id, multiplier, effective_from) VALUES (79, 0.8, '2026-02-10 14:00:00+00');
+UPDATE groups SET owner_payout_multiplier = 0.8 WHERE id = 79;
+INSERT INTO usage_logs(user_id, account_id, group_id, billing_type, total_cost, actual_cost, account_rate_multiplier, account_stats_cost, created_at) VALUES
+  (101, 1000, 79, 0, 10, 10, NULL, NULL, '2026-02-10 13:00:00+00'),
+  (101, 1000, 79, 0, 10, 10, NULL, NULL, '2026-02-10 15:00:00+00'),
+  (101, 1000, NULL, 0, 10, 10, NULL, NULL, '2026-02-10 15:00:00+00'),
+  (101, 1000, 79, 0, 10, 10, 0.5, NULL, '2026-02-10 16:00:00+00'),
+  (102, 1000, 79, 0, 10, 10, NULL, NULL, '2026-02-10 15:00:00+00'),
+  (101, 3000, 79, 0, 10, 10, NULL, NULL, '2026-02-10 15:00:00+00');
+`)
+	require.NoError(t, err)
+	var seeded int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM group_owner_payout_multiplier_history WHERE effective_from = '-infinity' AND multiplier = 1`).Scan(&seeded))
+	require.Equal(t, 3, seeded, "migration seeds one row per existing group at the current value")
+
+	ledgerRepo := NewUsageCostLedgerRepository(db)
+	ledger := service.NewUsageCostLedgerService(ledgerRepo, 0)
+	_, err = ledger.RunOnce(ctx)
+	require.NoError(t, err)
+	svc := service.NewOwnerSettlementService(NewOwnerSettlementRepository(client, db), ledger)
+
+	// 13:00 → 10 × 1；15:00 → 10 × 0.8；无分组 → 10 × 1；16:00 账户倍率 0.5 仍叠乘 → 10 × 0.5 × 0.8；
+	// 102 半赠半付 → 10 × 0.8 × 5/10 = 4，内部使用 = 10 × 0.8 − 4 = 4。
+	const wantEarnings = 10 + 8 + 10 + 4 + 4
+	report, err := svc.GetOwnerSettlements(ctx, febPeriod(), nil)
+	require.NoError(t, err)
+	require.Len(t, report.Items, 1)
+	a := report.Items[0]
+	require.Equal(t, int64(5), a.Requests)
+	require.InDelta(t, 45, a.AccountCost, 1e-9, "account cost stays official × account rate")
+	require.InDelta(t, wantEarnings, a.Earnings, 1e-9)
+	require.InDelta(t, 4, a.GiftAccountCost, 1e-9, "internal-use cost uses the same payout basis")
+	require.InDelta(t, 10+8+10+4+8, a.PayoutBase, 1e-9, "official × account rate × group rate at request time")
+	requirePayoutBasisInvariant(t, report)
+	require.InDelta(t, wantEarnings, a.EarningsAllTime, 1e-9)
+	require.InDelta(t, wantEarnings, a.Unpaid, 1e-9)
+
+	all, err := svc.ParsePeriod(service.ReportRangeAll, "", "")
+	require.NoError(t, err)
+	me, err := svc.GetMySettlement(ctx, 10, all)
+	require.NoError(t, err)
+	require.InDelta(t, wantEarnings, me.Earnings, 1e-9)
+
+	reader := ledgerRepo.(service.UsageCostSplitReader)
+	before := usageID(t, db, 101, "2026-02-10 13:00:00+00", "10")
+	var after, mixed, unowned int64
+	require.NoError(t, db.QueryRow(`SELECT id FROM usage_logs WHERE user_id = 101 AND account_id = 1000 AND group_id = 79 AND created_at = '2026-02-10 15:00:00+00'`).Scan(&after))
+	require.NoError(t, db.QueryRow(`SELECT id FROM usage_logs WHERE user_id = 102`).Scan(&mixed))
+	require.NoError(t, db.QueryRow(`SELECT id FROM usage_logs WHERE account_id = 3000`).Scan(&unowned))
+	rows, err := reader.GetUsageSplits(ctx, []int64{before, after, mixed, unowned})
+	require.NoError(t, err)
+	require.InDelta(t, 10, *rows[before].Earnings, 1e-9, "rows before the change keep the old multiplier")
+	require.InDelta(t, 0, *rows[before].GiftAccountCost, 1e-9)
+	require.InDelta(t, 8, *rows[after].Earnings, 1e-9, "rows after the change use the new multiplier")
+	require.InDelta(t, 4, *rows[mixed].Earnings, 1e-9)
+	require.InDelta(t, 4, *rows[mixed].GiftAccountCost, 1e-9)
+	require.Nil(t, rows[unowned].Earnings)
+
+	feb := febPeriod()
+	stats, err := reader.UsageSplitStats(ctx, usagestats.UsageLogFilters{OwnerUserID: 10, StartTime: &feb.Start, EndTime: &feb.End})
+	require.NoError(t, err)
+	require.InDelta(t, wantEarnings, stats.Earnings, 1e-9)
+	require.InDelta(t, 4, stats.GiftAccountCost, 1e-9)
+
+	health, err := NewAccountHealthRepository(client, db).AggregateAccountHealthUsage(ctx, []int64{1000}, feb.Start, feb.End)
+	require.NoError(t, err)
+	require.InDelta(t, wantEarnings, health[1000].Earnings, 1e-9)
+	require.InDelta(t, 45, health[1000].AccountCost, 1e-9)
+
+	// 再改回 1：已结算的历史请求数字不变（历史只追加，不改写）。
+	_, err = db.Exec(`INSERT INTO group_owner_payout_multiplier_history(group_id, multiplier, effective_from) VALUES (79, 1, '2026-02-20 00:00:00+00')`)
+	require.NoError(t, err)
+	again, err := svc.GetOwnerSettlements(ctx, febPeriod(), nil)
+	require.NoError(t, err)
+	require.InDelta(t, wantEarnings, again.Items[0].Earnings, 1e-9)
+}
+
+// 写入历史：创建写入覆盖全部历史的初始记录；修改只在值变化时追加“自此生效”的记录；
+// 缺少初始记录的分组（如旧路径创建）先补一条旧值的初始记录，保证修改前的请求仍按旧值。
+func TestRecordGroupOwnerPayoutMultiplierPostgres(t *testing.T) {
+	db, _ := ownerSettlementTestDB(t)
+	ctx := context.Background()
+	_, err := db.Exec(`INSERT INTO users(id, email) VALUES (1, 'admin@example.com'); INSERT INTO groups(id) VALUES (80), (81);
+DELETE FROM group_owner_payout_multiplier_history WHERE group_id = 81;`)
+	require.NoError(t, err)
+	type hist struct {
+		multiplier string
+		infinite   bool
+		createdBy  sql.NullInt64
+	}
+	read := func(groupID int64) []hist {
+		rows, err := db.Query(`SELECT multiplier::text, effective_from = '-infinity', created_by FROM group_owner_payout_multiplier_history WHERE group_id = $1 ORDER BY effective_from, id`, groupID)
+		require.NoError(t, err)
+		defer func() { _ = rows.Close() }()
+		var out []hist
+		for rows.Next() {
+			var h hist
+			require.NoError(t, rows.Scan(&h.multiplier, &h.infinite, &h.createdBy))
+			out = append(out, h)
+		}
+		require.NoError(t, rows.Err())
+		return out
+	}
+	admin := int64(1)
+	byAdmin := sql.NullInt64{Int64: 1, Valid: true}
+
+	require.NoError(t, recordGroupOwnerPayoutMultiplier(ctx, db, 80, nil, 0.9, &admin))
+	require.Equal(t, []hist{{"0.9000", true, byAdmin}}, read(80))
+
+	prev := 0.9
+	require.NoError(t, recordGroupOwnerPayoutMultiplier(ctx, db, 80, &prev, 0.90001, &admin))
+	require.Len(t, read(80), 1, "unchanged at storage precision: no new row")
+
+	require.NoError(t, recordGroupOwnerPayoutMultiplier(ctx, db, 80, &prev, 0.75, &admin))
+	h := read(80)
+	require.Len(t, h, 2)
+	require.Equal(t, "0.9000", h[0].multiplier, "earlier history is never rewritten")
+	require.Equal(t, hist{"0.7500", false, byAdmin}, h[1])
+	var recent bool
+	require.NoError(t, db.QueryRow(`SELECT effective_from > NOW() - interval '1 minute' FROM group_owner_payout_multiplier_history WHERE group_id = 80 AND multiplier = 0.75`).Scan(&recent))
+	require.True(t, recent, "a change takes effect now")
+
+	one := 1.0
+	require.NoError(t, recordGroupOwnerPayoutMultiplier(ctx, db, 81, &one, 1.2, nil))
+	require.Equal(t, []hist{{"1.0000", true, sql.NullInt64{}}, {"1.2000", false, sql.NullInt64{}}}, read(81))
 }

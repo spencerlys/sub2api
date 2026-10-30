@@ -71,6 +71,7 @@ const settlementTotals = {
   paid_cost: 100,
   gift_cost: 50,
   account_cost: 120,
+  payout_base: 100,
   earnings: 60,
   gift_account_cost: 40,
   pending_requests: 0,
@@ -153,7 +154,11 @@ describe('admin FinanceView', () => {
 
     const row = wrapper.get('[data-testid="settlement-row-3"]').text()
     expect(row).toContain('owner-a@example.com')
-    for (const value of ['200.00', '150.00', '120.00', '60.00', '400.00', '300.00', '100.00']) expect(row).toContain(value)
+    for (const value of ['200.00', '150.00', '60.00', '400.00', '300.00', '100.00']) expect(row).toContain(value)
+    // 分成基数（100 = 内部调用成本 40 + 本期应付 60）取代账号成本（120，不展示）。
+    expect(wrapper.get('[data-testid="settlement-row-3"] [data-testid="settlement-cell-payout_base"]').text()).toContain('100.00')
+    expect(row).not.toContain('120.00')
+    expect(wrapper.find('[data-testid="settlement-col-account_cost"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settlement-col-gift_account_cost"]').text()).toBe('admin.finance.settlement.giftAccountCost')
     expect(wrapper.get('[data-testid="settlement-totals"]').text()).toContain('admin.finance.settlement.totals')
 

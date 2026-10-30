@@ -22305,6 +22305,8 @@ type GroupMutation struct {
 	i18n                                    *domain.GroupI18n
 	rate_multiplier                         *float64
 	addrate_multiplier                      *float64
+	owner_payout_multiplier                 *float64
+	addowner_payout_multiplier              *float64
 	peak_rate_enabled                       *bool
 	peak_start                              *string
 	peak_end                                *string
@@ -22815,6 +22817,62 @@ func (m *GroupMutation) AddedRateMultiplier() (r float64, exists bool) {
 func (m *GroupMutation) ResetRateMultiplier() {
 	m.rate_multiplier = nil
 	m.addrate_multiplier = nil
+}
+
+// SetOwnerPayoutMultiplier sets the "owner_payout_multiplier" field.
+func (m *GroupMutation) SetOwnerPayoutMultiplier(f float64) {
+	m.owner_payout_multiplier = &f
+	m.addowner_payout_multiplier = nil
+}
+
+// OwnerPayoutMultiplier returns the value of the "owner_payout_multiplier" field in the mutation.
+func (m *GroupMutation) OwnerPayoutMultiplier() (r float64, exists bool) {
+	v := m.owner_payout_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOwnerPayoutMultiplier returns the old "owner_payout_multiplier" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldOwnerPayoutMultiplier(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOwnerPayoutMultiplier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOwnerPayoutMultiplier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOwnerPayoutMultiplier: %w", err)
+	}
+	return oldValue.OwnerPayoutMultiplier, nil
+}
+
+// AddOwnerPayoutMultiplier adds f to the "owner_payout_multiplier" field.
+func (m *GroupMutation) AddOwnerPayoutMultiplier(f float64) {
+	if m.addowner_payout_multiplier != nil {
+		*m.addowner_payout_multiplier += f
+	} else {
+		m.addowner_payout_multiplier = &f
+	}
+}
+
+// AddedOwnerPayoutMultiplier returns the value that was added to the "owner_payout_multiplier" field in this mutation.
+func (m *GroupMutation) AddedOwnerPayoutMultiplier() (r float64, exists bool) {
+	v := m.addowner_payout_multiplier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetOwnerPayoutMultiplier resets all changes to the "owner_payout_multiplier" field.
+func (m *GroupMutation) ResetOwnerPayoutMultiplier() {
+	m.owner_payout_multiplier = nil
+	m.addowner_payout_multiplier = nil
 }
 
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
@@ -26283,7 +26341,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 69)
+	fields := make([]string, 0, 70)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -26304,6 +26362,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.rate_multiplier != nil {
 		fields = append(fields, group.FieldRateMultiplier)
+	}
+	if m.owner_payout_multiplier != nil {
+		fields = append(fields, group.FieldOwnerPayoutMultiplier)
 	}
 	if m.peak_rate_enabled != nil {
 		fields = append(fields, group.FieldPeakRateEnabled)
@@ -26513,6 +26574,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.I18n()
 	case group.FieldRateMultiplier:
 		return m.RateMultiplier()
+	case group.FieldOwnerPayoutMultiplier:
+		return m.OwnerPayoutMultiplier()
 	case group.FieldPeakRateEnabled:
 		return m.PeakRateEnabled()
 	case group.FieldPeakStart:
@@ -26660,6 +26723,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldI18n(ctx)
 	case group.FieldRateMultiplier:
 		return m.OldRateMultiplier(ctx)
+	case group.FieldOwnerPayoutMultiplier:
+		return m.OldOwnerPayoutMultiplier(ctx)
 	case group.FieldPeakRateEnabled:
 		return m.OldPeakRateEnabled(ctx)
 	case group.FieldPeakStart:
@@ -26841,6 +26906,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetRateMultiplier(v)
+		return nil
+	case group.FieldOwnerPayoutMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOwnerPayoutMultiplier(v)
 		return nil
 	case group.FieldPeakRateEnabled:
 		v, ok := value.(bool)
@@ -27287,6 +27359,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addrate_multiplier != nil {
 		fields = append(fields, group.FieldRateMultiplier)
 	}
+	if m.addowner_payout_multiplier != nil {
+		fields = append(fields, group.FieldOwnerPayoutMultiplier)
+	}
 	if m.addpeak_rate_multiplier != nil {
 		fields = append(fields, group.FieldPeakRateMultiplier)
 	}
@@ -27378,6 +27453,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case group.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
+	case group.FieldOwnerPayoutMultiplier:
+		return m.AddedOwnerPayoutMultiplier()
 	case group.FieldPeakRateMultiplier:
 		return m.AddedPeakRateMultiplier()
 	case group.FieldDailyLimitUsd:
@@ -27447,6 +27524,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddRateMultiplier(v)
+		return nil
+	case group.FieldOwnerPayoutMultiplier:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOwnerPayoutMultiplier(v)
 		return nil
 	case group.FieldPeakRateMultiplier:
 		v, ok := value.(float64)
@@ -27825,6 +27909,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldRateMultiplier:
 		m.ResetRateMultiplier()
+		return nil
+	case group.FieldOwnerPayoutMultiplier:
+		m.ResetOwnerPayoutMultiplier()
 		return nil
 	case group.FieldPeakRateEnabled:
 		m.ResetPeakRateEnabled()

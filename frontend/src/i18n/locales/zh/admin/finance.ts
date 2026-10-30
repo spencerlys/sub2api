@@ -106,6 +106,7 @@ export default {
       paidCost: '付费调用',
       giftCost: '内部调用',
       accountCost: '账号成本',
+      payoutBase: '分成基数',
       earnings: '本期应付',
       giftAccountCost: '内部调用成本',
       earningsAllTime: '累计应付',
@@ -122,8 +123,9 @@ export default {
         paidCost: '应收中由充值余额支付的部分（付费调用）',
         giftCost: '应收中由赠送额度支付的部分（内部调用）',
         accountCost: '官方价 × 账号倍率',
-        earnings: '应付号主：仅付费调用对应的账号成本',
-        giftAccountCost: '内部调用对应的账号成本',
+        payoutBase: '官方价 × 号主分成倍率（按请求时的分组倍率）',
+        earnings: '应付号主：付费调用对应的账号成本 × 分组号主分成倍率（按请求时的倍率）',
+        giftAccountCost: '内部调用对应的账号成本 × 分组号主分成倍率',
         unpaid: '累计应付减去已打款'
       }
     },

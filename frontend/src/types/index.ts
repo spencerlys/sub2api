@@ -650,6 +650,9 @@ export interface AdminGroup extends Group {
   profit_control_enabled: boolean
   profit_min_margin: number
   profit_safety_buffer: number
+  // 号主分成倍率：应付号主 = 官方价 × 倍率 × 付费调用部分（默认 1）。
+  // 仅管理员可见：owner 角色请求时后端不返回该字段。
+  owner_payout_multiplier?: number
 
   // 模型路由配置（仅管理员可见，内部信息）
   model_routing: Record<string, number[]> | null
@@ -849,6 +852,8 @@ export interface CreateGroupRequest {
   profit_control_enabled?: boolean
   profit_min_margin?: number
   profit_safety_buffer?: number
+  // 号主分成倍率（0–10，默认 1；owner 角色提交时后端忽略）
+  owner_payout_multiplier?: number
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
@@ -917,6 +922,8 @@ export interface UpdateGroupRequest {
   profit_control_enabled?: boolean
   profit_min_margin?: number
   profit_safety_buffer?: number
+  // 号主分成倍率（0–10，默认 1；owner 角色提交时后端忽略）
+  owner_payout_multiplier?: number
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null

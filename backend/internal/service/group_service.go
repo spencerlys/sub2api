@@ -130,17 +130,19 @@ func (s *GroupService) Create(ctx context.Context, req CreateGroupRequest) (*Gro
 
 	// 创建分组
 	group := &Group{
-		Name:                 req.Name,
-		Description:          req.Description,
-		Platform:             PlatformAnthropic,
-		RateMultiplier:       req.RateMultiplier,
-		IsExclusive:          req.IsExclusive,
-		Status:               StatusActive,
-		SubscriptionType:     SubscriptionTypeStandard,
-		AllowImageGeneration: req.AllowImageGeneration,
-		ImageCountBilling:    req.ImageCountBilling,
-		ImageRateIndependent: req.ImageRateIndependent,
-		ImageRateMultiplier:  imageRateMultiplier,
+		Name:           req.Name,
+		Description:    req.Description,
+		Platform:       PlatformAnthropic,
+		RateMultiplier: req.RateMultiplier,
+		// 号主分成倍率只能由管理员在分组编辑中设置，新建一律为默认 1。
+		OwnerPayoutMultiplier: 1,
+		IsExclusive:           req.IsExclusive,
+		Status:                StatusActive,
+		SubscriptionType:      SubscriptionTypeStandard,
+		AllowImageGeneration:  req.AllowImageGeneration,
+		ImageCountBilling:     req.ImageCountBilling,
+		ImageRateIndependent:  req.ImageRateIndependent,
+		ImageRateMultiplier:   imageRateMultiplier,
 	}
 
 	if err := s.groupRepo.Create(ctx, group); err != nil {

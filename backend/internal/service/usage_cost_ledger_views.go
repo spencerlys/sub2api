@@ -10,7 +10,8 @@ import (
 type UsageRowSettlement struct {
 	PaidCost float64
 	GiftCost float64
-	// Earnings 应付所有者 = 账户成本 × paid_cost / actual_cost；GiftAccountCost = 账户成本 − Earnings（仅参考）。
+	// Earnings 应付所有者 = 账户成本 × 号主分成倍率 × paid_cost / actual_cost；
+	// GiftAccountCost = 账户成本 × 号主分成倍率 − Earnings（仅参考）。
 	// 账户无所有者时均为 nil。
 	Earnings        *float64
 	GiftAccountCost *float64

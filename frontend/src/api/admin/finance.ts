@@ -65,11 +65,16 @@ export interface OwnerSettlementTotals {
   paid_cost: number
   /** Part of user_billed funded by gift balance. */
   gift_cost: number
-  /** USD, official price × account multiplier. */
+  /** USD, official price × account multiplier. Kept for compatibility; the table shows payout_base. */
   account_cost: number
-  /** USD owner payable in the period = Σ account_cost × paid_cost / user_billed. */
+  /**
+   * USD payout basis = Σ account_cost × group owner payout rate at request time (split requests only).
+   * Always payout_base − gift_account_cost = earnings.
+   */
+  payout_base: number
+  /** USD owner payable in the period = Σ account_cost × payout rate × paid_cost / user_billed. */
   earnings: number
-  /** Account cost funded by gift balance. Reference only, never payable. */
+  /** Payout basis funded by gift balance (internal use). Reference only, never payable. */
   gift_account_cost: number
   /** Requests the ledger has not split yet; excluded from earnings. */
   pending_requests: number

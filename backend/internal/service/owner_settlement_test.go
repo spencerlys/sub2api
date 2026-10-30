@@ -124,9 +124,9 @@ func settlementFixture() *ownerSettlementRepoStub {
 		},
 		usage: []OwnerSettlementUsage{
 			{OwnerUserID: 10, Requests: 6, OfficialCost: 18, UserBilled: 21, PaidCost: 9, GiftCost: 12, AccountCost: 9,
-				Earnings: 4, GiftAccountCost: 5, PendingRequests: 0, EarningsAllTime: 40},
+				PayoutBase: 9, Earnings: 4, GiftAccountCost: 5, PendingRequests: 0, EarningsAllTime: 40},
 			{OwnerUserID: 20, Requests: 1, OfficialCost: 20, UserBilled: 20, PaidCost: 10, GiftCost: 5, AccountCost: 8,
-				Earnings: 3, GiftAccountCost: 1, PendingRequests: 1, PendingAccountCost: 4, EarningsAllTime: 12},
+				PayoutBase: 4, Earnings: 3, GiftAccountCost: 1, PendingRequests: 1, PendingAccountCost: 4, EarningsAllTime: 12},
 		},
 		active:  map[int64]int64{10: 2, 20: 1},
 		payouts: map[int64]float64{10: 25, 20: 2},
@@ -161,6 +161,7 @@ func TestOwnerSettlementReportUsesExactSplit(t *testing.T) {
 	require.InDelta(t, 12, a.GiftCost, 1e-9)
 	require.InDelta(t, 4, a.Earnings, 1e-9)
 	require.InDelta(t, 5, a.GiftAccountCost, 1e-9)
+	require.InDelta(t, 9, a.PayoutBase, 1e-9)
 	require.InDelta(t, 15, a.Unpaid, 1e-9, "unpaid = all-time earnings − payouts; gift-funded account cost is never payable")
 
 	b := report.Items[1]
@@ -183,6 +184,12 @@ func TestOwnerSettlementReportUsesExactSplit(t *testing.T) {
 	require.InDelta(t, 17, tot.AccountCost, 1e-9)
 	require.InDelta(t, 7, tot.Earnings, 1e-9)
 	require.InDelta(t, 6, tot.GiftAccountCost, 1e-9)
+	require.InDelta(t, 13, tot.PayoutBase, 1e-9)
+	// 分成基数 − 内部调用成本 = 本期应付（逐行与合计）。
+	for _, r := range report.Items {
+		require.InDelta(t, r.Earnings, r.PayoutBase-r.GiftAccountCost, 1e-9, "owner %d", r.OwnerUserID)
+	}
+	require.InDelta(t, tot.Earnings, tot.PayoutBase-tot.GiftAccountCost, 1e-9)
 	require.Equal(t, int64(1), tot.PendingRequests)
 	require.InDelta(t, 52, tot.EarningsAllTime, 1e-9)
 	require.InDelta(t, 27, tot.PaidTotal, 1e-9)
@@ -219,7 +226,7 @@ func TestOwnerSettlementSelfHidesBillingInternals(t *testing.T) {
 	require.NoError(t, err)
 	var fields map[string]any
 	require.NoError(t, json.Unmarshal(raw, &fields))
-	for _, forbidden := range []string{"user_billed", "account_cost", "paid_cost", "gift_cost", "gift_account_cost", "email", "username", "owner_user_id", "paid_share", "items"} {
+	for _, forbidden := range []string{"user_billed", "account_cost", "paid_cost", "gift_cost", "gift_account_cost", "payout_base", "email", "username", "owner_user_id", "paid_share", "items"} {
 		require.NotContains(t, fields, forbidden)
 	}
 

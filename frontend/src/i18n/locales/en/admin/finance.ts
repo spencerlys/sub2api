@@ -107,6 +107,7 @@ export default {
       paidCost: 'Paid use',
       giftCost: 'Internal use',
       accountCost: 'Account cost',
+      payoutBase: 'Payout basis',
       earnings: 'Payable (period)',
       giftAccountCost: 'Internal-use cost',
       earningsAllTime: 'Payable (all time)',
@@ -123,8 +124,9 @@ export default {
         paidCost: 'Part of the receivable funded by paid balance (paid use)',
         giftCost: 'Part of the receivable funded by gift balance (internal use)',
         accountCost: 'Official price × account multiplier',
-        earnings: 'Owed to the owner: account cost of paid use only',
-        giftAccountCost: 'Account cost of internal use',
+        payoutBase: "Official price × owner payout rate (the group's rate at request time)",
+        earnings: "Owed to the owner: account cost of paid use × the group's owner payout rate (rate in effect at request time)",
+        giftAccountCost: "Account cost of internal use × the group's owner payout rate",
         unpaid: 'Payable (all time) minus paid out'
       }
     },

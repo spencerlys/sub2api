@@ -384,8 +384,8 @@ ON CONFLICT (user_id) DO UPDATE SET
 	return err
 }
 
-// GetUsageSplits 按用量 id 读取拆分及对应的所有者收益；未拆分（待结算）的 id 不在结果中。
-// 账户无所有者时不返回收益与赠送资助的账户成本。
+// GetUsageSplits 按用量 id 读取拆分及对应的所有者收益（口径见 ownerPayoutJoinSQL）；未拆分（待结算）的 id 不在结果中。
+// 账户无所有者时不返回收益与内部使用（赠送资助）的账户成本。
 func (r *usageCostLedgerRepository) GetUsageSplits(ctx context.Context, ids []int64) (out map[int64]service.UsageRowSettlement, err error) {
 	out = make(map[int64]service.UsageRowSettlement, len(ids))
 	if len(ids) == 0 {
@@ -393,11 +393,12 @@ func (r *usageCostLedgerRepository) GetUsageSplits(ctx context.Context, ids []in
 	}
 	rows, err := r.db.QueryContext(ctx, `
 SELECT s.usage_log_id, s.paid_cost::double precision, s.gift_cost::double precision, (a.owner_user_id IS NOT NULL),
-  (CASE WHEN s.actual_cost > 0 THEN (`+accountCostSQL+`) * s.paid_cost / s.actual_cost ELSE 0 END)::double precision,
-  (`+accountCostSQL+`)::double precision
+  `+ownerEarningsSQL(accountCostSQL, "s")+`::double precision,
+  `+payoutBaseSQL(accountCostSQL)+`::double precision
 FROM usage_cost_splits s
 JOIN usage_logs ul ON ul.id = s.usage_log_id
 LEFT JOIN accounts a ON a.id = ul.account_id
+`+ownerPayoutJoinSQL("ul")+`
 WHERE s.usage_log_id = ANY($1)`, pq.Array(ids))
 	if err != nil {
 		return nil, err
@@ -405,16 +406,16 @@ WHERE s.usage_log_id = ANY($1)`, pq.Array(ids))
 	defer closeRows(rows, &err)
 	for rows.Next() {
 		var (
-			id                    int64
-			v                     service.UsageRowSettlement
-			owned                 bool
-			earnings, accountCost float64
+			id                   int64
+			v                    service.UsageRowSettlement
+			owned                bool
+			earnings, payoutBase float64
 		)
-		if err := rows.Scan(&id, &v.PaidCost, &v.GiftCost, &owned, &earnings, &accountCost); err != nil {
+		if err := rows.Scan(&id, &v.PaidCost, &v.GiftCost, &owned, &earnings, &payoutBase); err != nil {
 			return nil, err
 		}
 		if owned {
-			gift := accountCost - earnings
+			gift := payoutBase - earnings
 			v.Earnings, v.GiftAccountCost = &earnings, &gift
 		}
 		out[id] = v
@@ -422,28 +423,31 @@ WHERE s.usage_log_id = ANY($1)`, pq.Array(ids))
 	return out, rows.Err()
 }
 
-// UsageSplitStats 与 /admin/usage/stats 相同筛选条件下的拆分汇总；收益与赠送资助的账户成本只计有所有者的账户。
+// UsageSplitStats 与 /admin/usage/stats 相同筛选条件下的拆分汇总；收益与内部使用（赠送资助）的账户成本
+// 只计有所有者的账户，口径见 ownerPayoutJoinSQL。
 func (r *usageCostLedgerRepository) UsageSplitStats(ctx context.Context, filters usagestats.UsageLogFilters) (out *service.UsageSplitStats, err error) {
 	conditions, args := usageStatsConditions(filters)
 	rows, err := r.db.QueryContext(ctx, `
 WITH sc AS (
-  SELECT id, account_id, COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost
+  SELECT id, account_id, group_id, created_at, COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost
   FROM usage_logs
   `+buildWhere(conditions)+`
 ),
 x AS (
-  SELECT sc.account_cost, s.paid_cost, s.gift_cost,
+  SELECT s.paid_cost, s.gift_cost,
     (s.usage_log_id IS NOT NULL) AS split,
     (a.owner_user_id IS NOT NULL) AS owned,
-    CASE WHEN s.usage_log_id IS NOT NULL AND s.actual_cost > 0 THEN sc.account_cost * s.paid_cost / s.actual_cost ELSE 0 END AS earn
+    `+payoutBaseSQL("sc.account_cost")+` AS payout_base,
+    `+ownerEarningsSQL("sc.account_cost", "s")+` AS earn
   FROM sc
   LEFT JOIN usage_cost_splits s ON s.usage_log_id = sc.id
   LEFT JOIN accounts a ON a.id = sc.account_id
+  `+ownerPayoutJoinSQL("sc")+`
 )
 SELECT COALESCE(SUM(paid_cost), 0)::double precision,
   COALESCE(SUM(gift_cost), 0)::double precision,
   COALESCE(SUM(earn) FILTER (WHERE owned AND split), 0)::double precision,
-  COALESCE(SUM(account_cost - earn) FILTER (WHERE owned AND split), 0)::double precision,
+  COALESCE(SUM(payout_base - earn) FILTER (WHERE owned AND split), 0)::double precision,
   COUNT(*) FILTER (WHERE NOT split)
 FROM x`, args...)
 	if err != nil {

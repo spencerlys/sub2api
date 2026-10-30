@@ -22,6 +22,9 @@ type Group struct {
 	I18n           GroupI18n // 名称与描述的界面语言译文；缺失的语言沿用 Name/Description
 	Platform       string
 	RateMultiplier float64
+	// OwnerPayoutMultiplier 号主分成倍率（仅管理员可见可设）：应付号主 = 账户成本 × 本倍率 × 实付占比；
+	// 每次修改追加一条历史，请求按其发生时的倍率结算。不参与请求计费。
+	OwnerPayoutMultiplier float64
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
 	PeakRateEnabled    bool

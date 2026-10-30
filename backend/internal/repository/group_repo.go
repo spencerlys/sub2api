@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
+	"github.com/shopspring/decimal"
 
 	entsql "entgo.io/ent/dialect/sql"
 )
@@ -77,7 +78,10 @@ func newGroupRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *groupRep
 }
 
 func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) error {
-	if err := createGroupRecord(ctx, r.client, groupIn); err != nil {
+	// 分组与号主分成倍率初始历史在同一事务内写入。
+	if err := r.withGroupTx(ctx, func(txClient *dbent.Client) error {
+		return createGroupRecord(ctx, txClient, groupIn)
+	}); err != nil {
 		return err
 	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
@@ -99,6 +103,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
+		SetOwnerPayoutMultiplier(groupIn.OwnerPayoutMultiplier).
 		SetSortOrder(groupIn.SortOrder).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
@@ -181,7 +186,51 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	groupIn.ID = created.ID
 	groupIn.CreatedAt = created.CreatedAt
 	groupIn.UpdatedAt = created.UpdatedAt
-	return nil
+	return recordGroupOwnerPayoutMultiplier(ctx, client, created.ID, nil, created.OwnerPayoutMultiplier, service.OperatorUserIDFromContext(ctx))
+}
+
+// withGroupTx 在事务内执行 fn；调用方已处于事务中时直接复用其客户端（由调用方提交）。
+func (r *groupRepository) withGroupTx(ctx context.Context, fn func(*dbent.Client) error) error {
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return err
+	}
+	if err != nil {
+		return fn(r.client)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := fn(tx.Client()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// recordGroupOwnerPayoutMultiplier 追加号主分成倍率历史（只追加，不改写），须与分组写入处于同一事务。
+//   - previous 为 nil（新建分组）：写入一条覆盖全部历史的初始记录（effective_from = -infinity）；
+//   - 修改：分组缺少历史时先补一条 previous 的初始记录（兼容未写历史的旧路径），
+//     值在存储精度（4 位小数）上变化时再追加一条自 NOW() 起生效的记录。
+func recordGroupOwnerPayoutMultiplier(ctx context.Context, exec sqlExecutor, groupID int64, previous *float64, next float64, createdBy *int64) error {
+	nextDec := decimal.NewFromFloat(next).Round(4)
+	if previous == nil {
+		_, err := exec.ExecContext(ctx, `
+INSERT INTO group_owner_payout_multiplier_history (group_id, multiplier, effective_from, created_by)
+VALUES ($1, $2, '-infinity', $3)`, groupID, nextDec.String(), nullableID(createdBy))
+		return err
+	}
+	prevDec := decimal.NewFromFloat(*previous).Round(4)
+	if _, err := exec.ExecContext(ctx, `
+INSERT INTO group_owner_payout_multiplier_history (group_id, multiplier, effective_from)
+SELECT $1, $2, '-infinity'
+WHERE NOT EXISTS (SELECT 1 FROM group_owner_payout_multiplier_history WHERE group_id = $1)`, groupID, prevDec.String()); err != nil {
+		return err
+	}
+	if nextDec.Equal(prevDec) {
+		return nil
+	}
+	_, err := exec.ExecContext(ctx, `
+INSERT INTO group_owner_payout_multiplier_history (group_id, multiplier, effective_from, created_by)
+VALUES ($1, $2, NOW(), $3)`, groupID, nextDec.String(), nullableID(createdBy))
+	return err
 }
 
 func (r *groupRepository) FindByDuplicateOperationID(ctx context.Context, operationID string) (*service.Group, error) {
@@ -285,15 +334,56 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
+	// 分组更新与号主分成倍率历史在同一事务内写入；先锁定分组行读取旧倍率，避免并发修改漏记历史。
+	if err := r.withGroupTx(ctx, func(txClient *dbent.Client) error {
+		previous, err := lockGroupOwnerPayoutMultiplier(ctx, txClient, groupIn.ID)
+		if err != nil {
+			return err
+		}
+		if err := updateGroupRecord(ctx, txClient, groupIn); err != nil {
+			return err
+		}
+		if previous == nil {
+			return nil
+		}
+		return recordGroupOwnerPayoutMultiplier(ctx, txClient, groupIn.ID, previous, groupIn.OwnerPayoutMultiplier, service.OperatorUserIDFromContext(ctx))
+	}); err != nil {
+		return err
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
+		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group update failed: group=%d err=%v", groupIn.ID, err)
+	}
+	return nil
+}
+
+// lockGroupOwnerPayoutMultiplier 以 FOR UPDATE 锁定未删除的分组并返回当前号主分成倍率；分组不存在时返回 nil（由后续更新报告 NotFound）。
+func lockGroupOwnerPayoutMultiplier(ctx context.Context, exec sqlExecutor, groupID int64) (out *float64, err error) {
+	rows, err := exec.QueryContext(ctx, `SELECT owner_payout_multiplier::double precision FROM groups WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer closeRows(rows, &err)
+	if rows.Next() {
+		var v float64
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = &v
+	}
+	return out, rows.Err()
+}
+
+func updateGroupRecord(ctx context.Context, client *dbent.Client, groupIn *service.Group) error {
 	modelPricing, err := json.Marshal(groupIn.ModelPricing)
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
-	builder := r.client.Group.UpdateOneID(groupIn.ID).
+	builder := client.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
+		SetOwnerPayoutMultiplier(groupIn.OwnerPayoutMultiplier).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
 		SetSubscriptionType(groupIn.SubscriptionType).
@@ -450,9 +540,6 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		return translatePersistenceError(err, service.ErrGroupNotFound, service.ErrGroupExists)
 	}
 	groupIn.UpdatedAt = updated.UpdatedAt
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
-		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group update failed: group=%d err=%v", groupIn.ID, err)
-	}
 	return nil
 }
 
@@ -650,6 +737,9 @@ func groupListOrder(params pagination.PaginationParams) []func(*entsql.Selector)
 		defaultOrder = false
 	case "rate_multiplier":
 		field = group.FieldRateMultiplier
+		defaultOrder = false
+	case "owner_payout_multiplier":
+		field = group.FieldOwnerPayoutMultiplier
 		defaultOrder = false
 	case "is_exclusive":
 		field = group.FieldIsExclusive

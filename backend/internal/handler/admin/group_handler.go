@@ -15,6 +15,7 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -183,10 +184,28 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 	*req = UpdateGroupRequest{Name: req.Name, Description: req.Description, I18n: req.I18n}
 }
 
+// adminGroupResponse 管理端分组输出；所有者请求省略号主分成倍率。
+func adminGroupResponse(c *gin.Context, g *service.Group) *dto.AdminGroup {
+	out := dto.GroupFromServiceAdmin(g)
+	if isOwnerRequest(c) {
+		out.ForOwner()
+	}
+	return out
+}
+
+// groupOperatorContext 在请求上下文中记录操作者，供号主分成倍率历史的 created_by 使用。
+func groupOperatorContext(c *gin.Context) context.Context {
+	ctx := c.Request.Context()
+	if subject, ok := middleware.GetAuthSubjectFromContext(c); ok {
+		ctx = service.WithOperatorUserID(ctx, subject.UserID)
+	}
+	return ctx
+}
+
 // ownerGroupPlatformError 所有者分组只能直接绑定本人账户，组合分组会路由到其他分组。
 const ownerGroupPlatformError = "账号所有者不能创建组合分组"
 
-// sanitizeCreateGroupRequestForOwner 只保留所有者可写的非计费字段（Q2）：倍率、订阅、限额、
+// sanitizeCreateGroupRequestForOwner 只保留所有者可写的非计费字段（Q2）：倍率（含号主分成倍率，按默认 1）、订阅、限额、
 // 各类价格、兜底分组与复制来源一律丢弃，分组强制专属，仅管理员授权的用户可用。
 func sanitizeCreateGroupRequestForOwner(req *CreateGroupRequest) bool {
 	if req == nil || req.Platform == service.PlatformComposite {
@@ -202,7 +221,7 @@ func sanitizeCreateGroupRequestForOwner(req *CreateGroupRequest) bool {
 	return true
 }
 
-// sanitizeUpdateGroupRequestForOwner 与创建相同的字段白名单；未提供的字段保持原值。
+// sanitizeUpdateGroupRequestForOwner 与创建相同的字段白名单；未提供的字段（含号主分成倍率）保持原值。
 func sanitizeUpdateGroupRequestForOwner(req *UpdateGroupRequest) bool {
 	if req == nil || req.Platform == service.PlatformComposite {
 		return false
@@ -225,6 +244,7 @@ type CreateGroupRequest struct {
 	I18n                      service.GroupI18n             `json:"i18n"` // 名称与描述的界面语言译文
 	Platform                  string                        `json:"platform" binding:"omitempty,group_platform"`
 	RateMultiplier            float64                       `json:"rate_multiplier"`
+	OwnerPayoutMultiplier     *float64                      `json:"owner_payout_multiplier"` // 号主分成倍率，仅管理员；省略为 1
 	IsExclusive               bool                          `json:"is_exclusive"`
 	SubscriptionType          string                        `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
 	DailyLimitUSD             optionalLimitField            `json:"daily_limit_usd"`
@@ -301,6 +321,7 @@ type UpdateGroupRequest struct {
 	I18n                      *service.GroupI18n             `json:"i18n"` // 缺省不修改，传入则整体替换
 	Platform                  string                         `json:"platform" binding:"omitempty,group_platform"`
 	RateMultiplier            *float64                       `json:"rate_multiplier"`
+	OwnerPayoutMultiplier     *float64                       `json:"owner_payout_multiplier"` // 号主分成倍率，仅管理员；省略不修改
 	IsExclusive               *bool                          `json:"is_exclusive"`
 	Status                    string                         `json:"status" binding:"omitempty,oneof=active inactive"`
 	SubscriptionType          string                         `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -405,6 +426,10 @@ func (h *GroupHandler) List(c *gin.Context) {
 	isExclusiveStr := c.Query("is_exclusive")
 	sortBy := c.DefaultQuery("sort_by", "sort_order")
 	sortOrder := c.DefaultQuery("sort_order", "asc")
+	// 所有者看不到号主分成倍率，也不能按其排序（否则可推断相对大小）。
+	if isOwnerRequest(c) && strings.EqualFold(strings.TrimSpace(sortBy), "owner_payout_multiplier") {
+		sortBy = "sort_order"
+	}
 
 	var isExclusive *bool
 	if !h.isSimpleMode() && isExclusiveStr != "" {
@@ -430,7 +455,7 @@ func (h *GroupHandler) List(c *gin.Context) {
 	}
 	outGroups := make([]dto.AdminGroup, 0, len(groups))
 	for i := range groups {
-		outGroups = append(outGroups, *dto.GroupFromServiceAdmin(&groups[i]))
+		outGroups = append(outGroups, *adminGroupResponse(c, &groups[i]))
 	}
 	response.Paginated(c, outGroups, total, page, pageSize)
 }
@@ -617,7 +642,7 @@ func (h *GroupHandler) GetAll(c *gin.Context) {
 	}
 	outGroups := make([]dto.AdminGroup, 0, len(groups))
 	for i := range groups {
-		outGroups = append(outGroups, *dto.GroupFromServiceAdmin(&groups[i]))
+		outGroups = append(outGroups, *adminGroupResponse(c, &groups[i]))
 	}
 	response.Success(c, outGroups)
 }
@@ -644,7 +669,7 @@ func (h *GroupHandler) GetByID(c *gin.Context) {
 		response.Success(c, groupForSimpleMode(group))
 		return
 	}
-	response.Success(c, dto.GroupFromServiceAdmin(group))
+	response.Success(c, adminGroupResponse(c, group))
 }
 
 // GetGroupModelAllowlistCandidates handles getting candidate model IDs for the group model allowlist.
@@ -694,6 +719,12 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		response.BadRequest(c, ownerGroupPlatformError)
 		return
 	}
+	if req.OwnerPayoutMultiplier != nil {
+		if err := service.ValidateOwnerPayoutMultiplier(*req.OwnerPayoutMultiplier); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	if err := service.ValidatePeakRateConfig(req.SubscriptionType, req.PeakRateEnabled, req.PeakStart, req.PeakEnd, float64ValueOrDefault(req.PeakRateMultiplier, 1.0)); err != nil {
 		response.BadRequest(c, err.Error())
@@ -707,12 +738,13 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		return
 	}
 
-	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
+	group, err := h.adminService.CreateGroup(groupOperatorContext(c), &service.CreateGroupInput{
 		Name:                            req.Name,
 		Description:                     req.Description,
 		I18n:                            req.I18n,
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
+		OwnerPayoutMultiplier:           req.OwnerPayoutMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		SubscriptionType:                req.SubscriptionType,
 		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
@@ -780,7 +812,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		response.Success(c, groupForSimpleMode(group))
 		return
 	}
-	response.Success(c, dto.GroupFromServiceAdmin(group))
+	response.Success(c, adminGroupResponse(c, group))
 }
 
 // Duplicate handles creating an inactive group copy with the source account bindings.
@@ -808,7 +840,7 @@ func (h *GroupHandler) Duplicate(c *gin.Context) {
 			if execErr != nil {
 				return nil, execErr
 			}
-			return dto.GroupFromServiceAdmin(group), nil
+			return adminGroupResponse(c, group), nil
 		},
 	)
 	if err != nil {
@@ -819,7 +851,7 @@ func (h *GroupHandler) Duplicate(c *gin.Context) {
 				slog.Warn("group_duplicate_recovery_failed", "group_id", groupID, "actor_scope", actorScope, "reason", reason, "error", recoverErr)
 			} else if recovered != nil {
 				c.Header("X-Idempotency-Recovered", "true")
-				response.Success(c, dto.GroupFromServiceAdmin(recovered))
+				response.Success(c, adminGroupResponse(c, recovered))
 				return
 			}
 		}
@@ -857,13 +889,20 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		response.BadRequest(c, ownerGroupPlatformError)
 		return
 	}
+	if req.OwnerPayoutMultiplier != nil {
+		if err := service.ValidateOwnerPayoutMultiplier(*req.OwnerPayoutMultiplier); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
-	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
+	group, err := h.adminService.UpdateGroup(groupOperatorContext(c), groupID, &service.UpdateGroupInput{
 		Name:                            req.Name,
 		Description:                     req.Description,
 		I18n:                            req.I18n,
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
+		OwnerPayoutMultiplier:           req.OwnerPayoutMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		Status:                          req.Status,
 		SubscriptionType:                req.SubscriptionType,
@@ -932,7 +971,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		response.Success(c, groupForSimpleMode(group))
 		return
 	}
-	response.Success(c, dto.GroupFromServiceAdmin(group))
+	response.Success(c, adminGroupResponse(c, group))
 }
 
 // Delete handles deleting a group

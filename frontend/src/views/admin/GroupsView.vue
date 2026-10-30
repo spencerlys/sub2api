@@ -267,6 +267,12 @@
             >
           </template>
 
+          <template #cell-owner_payout_multiplier="{ value }">
+            <span class="text-sm text-gray-700 dark:text-gray-300"
+              >{{ value ?? 1 }}x</span
+            >
+          </template>
+
           <template #cell-is_exclusive="{ value }">
             <span :class="['badge', value ? 'badge-primary' : 'badge-gray']">
               {{
@@ -625,6 +631,23 @@
             data-tour="group-form-multiplier"
           />
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
+        </div>
+        <div v-if="!authStore.isOwner">
+          <label class="input-label">{{
+            t("admin.groups.form.ownerPayoutMultiplier")
+          }}</label>
+          <input
+            v-model.number="createForm.owner_payout_multiplier"
+            type="number"
+            step="0.01"
+            min="0"
+            max="10"
+            class="input"
+            data-testid="group-owner-payout-multiplier"
+          />
+          <p class="input-hint">
+            {{ t("admin.groups.form.ownerPayoutMultiplierHint") }}
+          </p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
@@ -2278,6 +2301,23 @@
             class="input"
             data-tour="group-form-multiplier"
           />
+        </div>
+        <div v-if="!authStore.isOwner">
+          <label class="input-label">{{
+            t("admin.groups.form.ownerPayoutMultiplier")
+          }}</label>
+          <input
+            v-model.number="editForm.owner_payout_multiplier"
+            type="number"
+            step="0.01"
+            min="0"
+            max="10"
+            class="input"
+            data-testid="group-owner-payout-multiplier"
+          />
+          <p class="input-hint">
+            {{ t("admin.groups.form.ownerPayoutMultiplierHint") }}
+          </p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
@@ -4513,6 +4553,7 @@ const allColumns = computed<Column[]>(() => {
     ...basic.slice(0, 3),
     { key: "billing_type", label: t("admin.groups.columns.billingType"), sortable: true },
     { key: "rate_multiplier", label: t("admin.groups.columns.rateMultiplier"), sortable: true },
+    { key: "owner_payout_multiplier", label: t("admin.groups.columns.ownerPayoutMultiplier"), sortable: true },
     { key: "is_exclusive", label: t("admin.groups.columns.type"), sortable: true },
     basic[3],
     { key: "capacity", label: t("admin.groups.columns.capacity"), sortable: false },
@@ -5023,6 +5064,8 @@ const createForm = reactive({
   peak_start: "",
   peak_end: "",
   peak_rate_multiplier: 1.0,
+  // 号主分成倍率（仅管理员可见/提交；0–10，默认 1）
+  owner_payout_multiplier: 1,
   // 分组利润控制（五个 token 平台）；界面按百分比输入，提交时转小数
   profit_control_enabled: false,
   profit_min_margin_percent: 0,
@@ -5390,6 +5433,8 @@ const editForm = reactive({
   peak_start: "",
   peak_end: "",
   peak_rate_multiplier: 1.0,
+  // 号主分成倍率（仅管理员可见/提交；0–10，默认 1）
+  owner_payout_multiplier: 1,
   // 分组利润控制（五个 token 平台）；界面按百分比输入，提交时转小数
   profit_control_enabled: false,
   profit_min_margin_percent: 0,
@@ -5862,6 +5907,7 @@ const closeCreateModal = () => {
   createForm.peak_start = "";
   createForm.peak_end = "";
   createForm.peak_rate_multiplier = 1.0;
+  createForm.owner_payout_multiplier = 1;
   createForm.profit_control_enabled = false;
   createForm.profit_min_margin_percent = 0;
   createForm.profit_safety_buffer_percent = 0;
@@ -5911,6 +5957,18 @@ const normalizeRateMultiplier = (
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
+};
+
+// 号主分成倍率：仅在 0–10 内的有效数字时提交；清空或非法时不发送
+// （创建由后端默认 1，更新保持不变）。
+const normalizeOwnerPayoutMultiplier = (
+  value: number | string | null | undefined,
+): number | undefined => {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 10
+    ? parsed
+    : undefined;
 };
 
 // 利润控制表单辅助（换算与校验逻辑见 groupsProfitControl.ts，便于单测）。
@@ -6083,6 +6141,15 @@ const handleCreateGroup = async () => {
     requestData.peak_rate_multiplier = normalizeRateMultiplier(
       createForm.peak_rate_multiplier,
     );
+    // 号主分成倍率仅管理员提交；owner 不可见也不发送
+    const createOwnerPayoutMultiplier = normalizeOwnerPayoutMultiplier(
+      createForm.owner_payout_multiplier,
+    );
+    if (authStore.isOwner || createOwnerPayoutMultiplier === undefined) {
+      delete (requestData as Record<string, unknown>).owner_payout_multiplier;
+    } else {
+      requestData.owner_payout_multiplier = createOwnerPayoutMultiplier;
+    }
     const payload = authStore.isSimpleMode
       ? {
           name: createForm.name,
@@ -6162,6 +6229,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.peak_start = group.peak_start ?? "";
   editForm.peak_end = group.peak_end ?? "";
   editForm.peak_rate_multiplier = group.peak_rate_multiplier ?? 1.0;
+  editForm.owner_payout_multiplier = group.owner_payout_multiplier ?? 1;
   editForm.profit_control_enabled = group.profit_control_enabled ?? false;
   editForm.profit_min_margin_percent = decimalToPercent(
     group.profit_min_margin ?? 0,
@@ -6255,6 +6323,7 @@ const closeEditModal = () => {
   editForm.peak_start = "";
   editForm.peak_end = "";
   editForm.peak_rate_multiplier = 1.0;
+  editForm.owner_payout_multiplier = 1;
   editForm.profit_control_enabled = false;
   editForm.profit_min_margin_percent = 0;
   editForm.profit_safety_buffer_percent = 0;
@@ -6448,6 +6517,15 @@ const handleUpdateGroup = async () => {
     payload.peak_rate_multiplier = normalizeRateMultiplier(
       editForm.peak_rate_multiplier,
     );
+    // 号主分成倍率仅管理员提交；owner 不可见也不发送，清空则保持不变
+    const editOwnerPayoutMultiplier = normalizeOwnerPayoutMultiplier(
+      editForm.owner_payout_multiplier,
+    );
+    if (authStore.isOwner || editOwnerPayoutMultiplier === undefined) {
+      delete (payload as Record<string, unknown>).owner_payout_multiplier;
+    } else {
+      payload.owner_payout_multiplier = editOwnerPayoutMultiplier;
+    }
     const requestData = authStore.isSimpleMode
       ? {
           name: editForm.name,

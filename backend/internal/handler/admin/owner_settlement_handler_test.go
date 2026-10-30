@@ -47,9 +47,9 @@ func (s *settlementRepoStub) ListSettlementOwners(_ context.Context, id *int64) 
 func (s *settlementRepoStub) AggregateOwnerSettlement(_ context.Context, start, end time.Time, id *int64) ([]service.OwnerSettlementUsage, error) {
 	s.usageStart, s.usageEnd = start, end
 	rows := []service.OwnerSettlementUsage{
-		{OwnerUserID: 7, Requests: 3, OfficialCost: 10, UserBilled: 15, PaidCost: 9, GiftCost: 5, AccountCost: 4, Earnings: 2.4,
+		{OwnerUserID: 7, Requests: 3, OfficialCost: 10, UserBilled: 15, PaidCost: 9, GiftCost: 5, AccountCost: 4, PayoutBase: 3.6, Earnings: 2.4,
 			GiftAccountCost: 1.2, PendingRequests: 1, PendingAccountCost: 0.4, EarningsAllTime: 8},
-		{OwnerUserID: 8, Requests: 1, OfficialCost: 2, UserBilled: 3, PaidCost: 3, AccountCost: 1, Earnings: 1, EarningsAllTime: 1},
+		{OwnerUserID: 8, Requests: 1, OfficialCost: 2, UserBilled: 3, PaidCost: 3, AccountCost: 1, PayoutBase: 1, Earnings: 1, EarningsAllTime: 1},
 	}
 	var out []service.OwnerSettlementUsage
 	for _, r := range rows {
@@ -175,7 +175,7 @@ func TestOwnerSettlementHandler_OwnerOnlyGetsOwnSummary(t *testing.T) {
 		require.InDelta(t, 7, body.Data["unpaid"], 1e-9)
 		require.Contains(t, body.Data, "ledger")
 		raw := w.Body.String()
-		for _, forbidden := range []string{"user_billed", "account_cost", "paid_cost", "gift_cost", "multiplier", "paid_share", "email", "username", "user_id", "owner-b", "boom"} {
+		for _, forbidden := range []string{"user_billed", "account_cost", "payout_base", "paid_cost", "gift_cost", "multiplier", "paid_share", "email", "username", "user_id", "owner-b", "boom"} {
 			require.NotContains(t, raw, forbidden)
 		}
 	}
@@ -227,7 +227,15 @@ func TestOwnerSettlementHandler_AdminReport(t *testing.T) {
 	require.InDelta(t, 5, a.GiftCost, 1e-9)
 	require.InDelta(t, 2.4, a.Earnings, 1e-9)
 	require.InDelta(t, 1.2, a.GiftAccountCost, 1e-9)
+	require.InDelta(t, 3.6, a.PayoutBase, 1e-9)
+	require.InDelta(t, 4, a.AccountCost, 1e-9, "account_cost stays in the API for compatibility")
 	require.InDelta(t, 7, a.Unpaid, 1e-9, "unpaid = all-time earnings − payouts; gift-funded cost never payable")
+	for _, row := range body.Data.Items {
+		require.InDelta(t, row.Earnings, row.PayoutBase-row.GiftAccountCost, 1e-9)
+	}
+	require.InDelta(t, 4.6, body.Data.Totals.PayoutBase, 1e-9)
+	require.InDelta(t, body.Data.Totals.Earnings, body.Data.Totals.PayoutBase-body.Data.Totals.GiftAccountCost, 1e-9)
+	require.Contains(t, w.Body.String(), `"payout_base":3.6`)
 	require.Equal(t, int64(4), body.Data.Totals.Requests)
 	require.Equal(t, int64(3), body.Data.Totals.ActiveAccounts)
 	require.NotNil(t, body.Data.Ledger)

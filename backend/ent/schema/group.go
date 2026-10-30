@@ -52,6 +52,11 @@ func (Group) Fields() []ent.Field {
 		field.Float("rate_multiplier").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(1.0),
+		// 号主分成倍率（added by migration 254），仅管理员可设；变更历史见 group_owner_payout_multiplier_history。
+		field.Float("owner_payout_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("号主分成倍率：应付号主 = 账户成本 × 本倍率 × 实付占比；修改只影响之后的请求"),
 		// 高峰时段倍率（added by migration 158）
 		field.Bool("peak_rate_enabled").
 			Default(false).
