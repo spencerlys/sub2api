@@ -40,6 +40,15 @@ export default {
     accountError: 'Account error',
     errorBreakdown: '{errors} errors of {total} requests',
     tokensTitle: 'Input {input} / Output {output} / Cache {cache}',
+    totals: {
+      title: 'Total (shown accounts)',
+      requests: 'Requests',
+      errors: 'Errors',
+      tokensIn: 'Input tokens',
+      tokensOut: 'Output tokens',
+      tokensCache: 'Cache tokens',
+      cost: 'Cost'
+    },
     errorCategory: {
       rate_limit: 'Rate limit',
       overloaded: 'Overloaded',

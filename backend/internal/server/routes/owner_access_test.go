@@ -35,5 +35,5 @@ func TestOwnerCatalogueMatchesRegisteredRoutes(t *testing.T) {
 		}
 	}
 	// 与 catalog.go 中 owner.* 登记的路由总数一致；新增或拼错路由都会使此处失败。
-	require.Equal(t, 64, allowed)
+	require.Equal(t, 65, allowed)
 }

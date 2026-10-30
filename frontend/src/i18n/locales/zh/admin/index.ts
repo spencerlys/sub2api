@@ -2,6 +2,7 @@ import overview from './overview'
 import channels from './channels'
 import accounts from './accounts'
 import accountHealth from './accountHealth'
+import finance from './finance'
 import resources from './resources'
 import ops from './ops'
 import settings from './settings'
@@ -14,6 +15,7 @@ export default {
   ...channels,
   ...accounts,
   ...accountHealth,
+  ...finance,
   ...resources,
   ...ops,
   ...settings,

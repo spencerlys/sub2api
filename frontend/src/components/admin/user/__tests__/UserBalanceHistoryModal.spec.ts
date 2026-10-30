@@ -3,8 +3,10 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import type { AdminUser } from '@/types'
 import UserBalanceHistoryModal from '../UserBalanceHistoryModal.vue'
 
-const mocks = vi.hoisted(() => ({ getUserBalanceHistory: vi.fn() }))
+const mocks = vi.hoisted(() => ({ getUserBalanceHistory: vi.fn(), updateBalanceRecordSource: vi.fn() }))
+const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }))
 vi.mock('@/api/admin', () => ({ adminAPI: { users: mocks } }))
+vi.mock('@/stores/app', () => ({ useAppStore: () => toast }))
 vi.mock('@/utils/format', () => ({ formatDateTime: () => 'date' }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 enableAutoUnmount(afterEach)
@@ -78,5 +80,55 @@ describe('UserBalanceHistoryModal request ordering', () => {
     await flushPromises()
     expect(console.error).toHaveBeenCalledWith('Failed to load balance history:', error)
     expect(wrapper.find('svg.animate-spin').exists()).toBe(false)
+  })
+})
+
+describe('UserBalanceHistoryModal balance source', () => {
+  function sourceHistory() {
+    return {
+      items: [
+        { id: 11, type: 'admin_balance', value: 5, notes: 'legacy grant', created_at: '' },
+        { id: 12, type: 'admin_balance', value: 9, notes: 'bank transfer', balance_source: 'offline', created_at: '' },
+        { id: 13, type: 'balance', value: 3, code: 'ABCDEFGHIJ', notes: '', created_at: '' }
+      ],
+      total: 3,
+      total_recharged: 17
+    }
+  }
+  const select = (wrapper: Awaited<ReturnType<typeof openDialog>>, id: number) =>
+    wrapper.find(`[data-testid="balance-source-${id}"]`)
+
+  it('shows a source select only on admin balance rows, defaulting to gift', async () => {
+    mocks.getUserBalanceHistory.mockResolvedValueOnce(sourceHistory())
+    const wrapper = await openDialog()
+    await flushPromises()
+    expect((select(wrapper, 11).element as HTMLSelectElement).value).toBe('gift')
+    expect((select(wrapper, 12).element as HTMLSelectElement).value).toBe('offline')
+    expect(select(wrapper, 13).exists()).toBe(false)
+  })
+
+  it('updates the record source and the row on change', async () => {
+    mocks.getUserBalanceHistory.mockResolvedValueOnce(sourceHistory())
+    mocks.updateBalanceRecordSource.mockResolvedValueOnce({ id: 11, balance_source: 'correction', notes: 'fixed typo' })
+    const wrapper = await openDialog()
+    await flushPromises()
+    await select(wrapper, 11).setValue('correction')
+    await flushPromises()
+    expect(mocks.updateBalanceRecordSource).toHaveBeenCalledWith(1, 11, 'correction')
+    expect(toast.showSuccess).toHaveBeenCalledWith('admin.finance.balanceSource.updated')
+    expect((select(wrapper, 11).element as HTMLSelectElement).value).toBe('correction')
+    expect(wrapper.text()).toContain('fixed typo')
+  })
+
+  it('reverts the select and reports the error when the update fails', async () => {
+    mocks.getUserBalanceHistory.mockResolvedValueOnce(sourceHistory())
+    mocks.updateBalanceRecordSource.mockRejectedValueOnce({ message: 'Only admin balance records' })
+    const wrapper = await openDialog()
+    await flushPromises()
+    await select(wrapper, 12).setValue('gift')
+    await flushPromises()
+    expect(mocks.updateBalanceRecordSource).toHaveBeenCalledWith(1, 12, 'gift')
+    expect(toast.showError).toHaveBeenCalledWith('Only admin balance records')
+    expect((select(wrapper, 12).element as HTMLSelectElement).value).toBe('offline')
   })
 })

@@ -543,6 +543,8 @@ type AdminRedeemCode struct {
 	RedeemCode
 
 	Notes string `json:"notes"`
+	// BalanceSource 仅 admin_balance：gift/offline/correction（来自备注前缀，Notes 已去掉前缀）。
+	BalanceSource string `json:"balance_source,omitempty"`
 }
 
 type NullableTimeField struct {

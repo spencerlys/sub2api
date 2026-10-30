@@ -8,6 +8,7 @@ import usersAPI from './users'
 import groupsAPI from './groups'
 import accountsAPI from './accounts'
 import accountHealthAPI from './accountHealth'
+import financeAPI from './finance'
 import proxiesAPI from './proxies'
 import redeemAPI from './redeem'
 import promoAPI from './promo'
@@ -47,6 +48,7 @@ export const adminAPI = {
   groups: groupsAPI,
   accounts: accountsAPI,
   accountHealth: accountHealthAPI,
+  finance: financeAPI,
   proxies: proxiesAPI,
   redeem: redeemAPI,
   promo: promoAPI,
@@ -84,6 +86,7 @@ export {
   groupsAPI,
   accountsAPI,
   accountHealthAPI,
+  financeAPI,
   proxiesAPI,
   redeemAPI,
   promoAPI,
@@ -120,12 +123,22 @@ export default adminAPI
 // Re-export types used by components
 export type { AuditLog, AuditLogQuery, AuditLogListResponse } from './audit'
 export type { BalanceHistoryItem } from './users'
+export type { BalanceSource } from './balanceSource'
 export type {
   AccountHealthRange,
   AccountHealthItem,
   AccountHealthResponse,
   AccountHealthErrorCategory
 } from './accountHealth'
+export type {
+  FinanceDateRange,
+  FinanceSummary,
+  MyOwnerSettlement,
+  OwnerPayout,
+  OwnerSettlementRow,
+  OwnerSettlementTotals,
+  OwnerSettlementsResponse
+} from './finance'
 export type { ErrorPassthroughRule, CreateRuleRequest, UpdateRuleRequest } from './errorPassthrough'
 export type { BackupAgentHealth, DataManagementConfig } from './dataManagement'
 export type { TLSFingerprintProfile, CreateProfileRequest, UpdateProfileRequest } from './tlsFingerprintProfile'

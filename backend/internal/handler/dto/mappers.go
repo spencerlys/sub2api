@@ -639,10 +639,14 @@ func RedeemCodeFromServiceAdmin(rc *service.RedeemCode) *AdminRedeemCode {
 	if rc == nil {
 		return nil
 	}
-	return &AdminRedeemCode{
+	out := &AdminRedeemCode{
 		RedeemCode: redeemCodeFromServiceBase(rc),
 		Notes:      rc.Notes,
 	}
+	if rc.Type == service.AdjustmentTypeAdminBalance {
+		out.BalanceSource, out.Notes, _ = service.ParseBalanceSourceNotes(rc.Notes)
+	}
+	return out
 }
 
 func redeemCodeFromServiceBase(rc *service.RedeemCode) RedeemCode {
@@ -667,8 +671,15 @@ func redeemCodeFromServiceBase(rc *service.RedeemCode) RedeemCode {
 
 	// For admin_balance/admin_concurrency types, include notes so users can see
 	// why they were charged or credited by admin
-	if (rc.Type == "admin_balance" || rc.Type == "admin_concurrency") && rc.Notes != "" {
-		out.Notes = &rc.Notes
+	if rc.Type == "admin_balance" || rc.Type == "admin_concurrency" {
+		notes := rc.Notes
+		if rc.Type == "admin_balance" {
+			// 来源前缀是内部记账标记，不展示给用户。
+			_, notes, _ = service.ParseBalanceSourceNotes(notes)
+		}
+		if notes != "" {
+			out.Notes = &notes
+		}
 	}
 
 	return out

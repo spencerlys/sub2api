@@ -858,6 +858,8 @@ const adminNavItems = computed((): NavItem[] => {
       ],
     },
     { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
+    // Admin-only: owners use their earnings card on the account health page instead.
+    { path: '/admin/finance', label: t('nav.finance'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
   ]
 

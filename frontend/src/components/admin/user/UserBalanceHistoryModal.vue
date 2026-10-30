@@ -136,6 +136,20 @@
               >
                 {{ t('redeem.adminAdjustment') }}
               </p>
+              <select
+                v-if="item.type === 'admin_balance'"
+                class="mt-1 rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-xs text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300"
+                :value="item.balance_source || 'gift'"
+                :disabled="savingSourceId === item.id"
+                :aria-label="t('admin.finance.balanceSource.label')"
+                :title="t(`admin.finance.balanceSource.help.${item.balance_source || 'gift'}`)"
+                :data-testid="`balance-source-${item.id}`"
+                @change="changeSource(item, $event)"
+              >
+                <option v-for="source in BALANCE_SOURCES" :key="source" :value="source">
+                  {{ t(`admin.finance.balanceSource.${source}`) }}
+                </option>
+              </select>
               <p
                 v-else
                 class="font-mono text-xs text-gray-400 dark:text-dark-500"
@@ -175,6 +189,9 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI, type BalanceHistoryItem } from '@/api/admin'
+import { BALANCE_SOURCES, type BalanceSource } from '@/api/admin/balanceSource'
+import { useAppStore } from '@/stores/app'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTime } from '@/utils/format'
 import type { AdminUser } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -184,6 +201,7 @@ import Icon from '@/components/icons/Icon.vue'
 const props = defineProps<{ show: boolean; user: AdminUser | null; hideActions?: boolean }>()
 const emit = defineEmits(['close', 'deposit', 'withdraw'])
 const { t } = useI18n()
+const appStore = useAppStore()
 
 const history = ref<BalanceHistoryItem[]>([])
 const loading = ref(false)
@@ -193,6 +211,7 @@ const totalRecharged = ref(0)
 const pageSize = 15
 const typeFilter = ref('')
 let requestVersion = 0
+const savingSourceId = ref<number | null>(null)
 
 onUnmounted(() => { requestVersion++ })
 
@@ -239,6 +258,27 @@ const loadHistory = async (page: number) => {
     console.error('Failed to load balance history:', error)
   } finally {
     if (version === requestVersion) loading.value = false
+  }
+}
+
+// Re-classify an admin balance adjustment (gift / offline / correction).
+const changeSource = async (item: BalanceHistoryItem, event: Event) => {
+  if (!props.user) return
+  const select = event.target as HTMLSelectElement
+  const previous: BalanceSource = item.balance_source || 'gift'
+  const next = select.value as BalanceSource
+  if (next === previous) return
+  savingSourceId.value = item.id
+  try {
+    const res = await adminAPI.users.updateBalanceRecordSource(props.user.id, item.id, next)
+    item.balance_source = res?.balance_source || next
+    if (res && typeof res.notes === 'string') item.notes = res.notes
+    appStore.showSuccess(t('admin.finance.balanceSource.updated'))
+  } catch (error) {
+    select.value = previous
+    appStore.showError(extractApiErrorMessage(error, t('admin.finance.balanceSource.updateFailed')))
+  } finally {
+    savingSourceId.value = null
   }
 }
 

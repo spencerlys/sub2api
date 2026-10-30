@@ -24,6 +24,7 @@ func TestOwnerPolicyAllowsOnlyOwnerCatalogue(t *testing.T) {
 		{"GET", "/api/v1/admin/proxies/all"}, {"POST", "/api/v1/admin/proxies/:id/test"},
 		{"GET", "/api/v1/admin/usage"}, {"GET", "/api/v1/admin/usage/stats"},
 		{"GET", "/api/v1/admin/compliance"}, {"POST", "/api/v1/admin/compliance/accept"},
+		{"GET", "/api/v1/admin/owner-settlements/me"},
 	} {
 		require.True(t, RouteAllowed(owner, route.method, route.path), route.method+" "+route.path)
 	}
@@ -44,6 +45,9 @@ func TestOwnerPolicyAllowsOnlyOwnerCatalogue(t *testing.T) {
 		{"GET", "/api/v1/admin/usage/search-users"}, {"GET", "/api/v1/admin/usage/search-api-keys"},
 		{"POST", "/api/v1/admin/usage/cleanup-tasks"}, {"GET", "/api/v1/admin/payment/orders"},
 		{"POST", "/api/v1/admin/subscriptions/assign"}, {"GET", "/api/v1/admin/system/version"},
+		{"GET", "/api/v1/admin/owner-settlements"}, {"GET", "/api/v1/admin/finance/summary"},
+		{"GET", "/api/v1/admin/owner-payouts"}, {"POST", "/api/v1/admin/owner-payouts"},
+		{"DELETE", "/api/v1/admin/owner-payouts/:id"}, {"PUT", "/api/v1/admin/users/:id/balance-history/:recordId/source"},
 		{"GET", ""},
 	} {
 		require.False(t, RouteAllowed(owner, route.method, route.path), route.method+" "+route.path)

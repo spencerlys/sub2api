@@ -1117,6 +1117,35 @@ var (
 			},
 		},
 	}
+	// OwnerPayoutsColumns holds the columns for the "owner_payouts" table.
+	OwnerPayoutsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "owner_user_id", Type: field.TypeInt64},
+		{Name: "amount", Type: field.TypeFloat64, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "paid_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "notes", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "created_by", Type: field.TypeInt64, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+	}
+	// OwnerPayoutsTable holds the schema information for the "owner_payouts" table.
+	OwnerPayoutsTable = &schema.Table{
+		Name:       "owner_payouts",
+		Columns:    OwnerPayoutsColumns,
+		PrimaryKey: []*schema.Column{OwnerPayoutsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "ownerpayout_owner_user_id_paid_at",
+				Unique:  false,
+				Columns: []*schema.Column{OwnerPayoutsColumns[2], OwnerPayoutsColumns[4]},
+			},
+			{
+				Name:    "ownerpayout_deleted_at",
+				Unique:  false,
+				Columns: []*schema.Column{OwnerPayoutsColumns[1]},
+			},
+		},
+	}
 	// PaymentAuditLogsColumns holds the columns for the "payment_audit_logs" table.
 	PaymentAuditLogsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2134,6 +2163,7 @@ var (
 		GroupsTable,
 		IdempotencyRecordsTable,
 		IdentityAdoptionDecisionsTable,
+		OwnerPayoutsTable,
 		PaymentAuditLogsTable,
 		PaymentOrdersTable,
 		PaymentProviderInstancesTable,
@@ -2230,6 +2260,9 @@ func init() {
 	IdentityAdoptionDecisionsTable.ForeignKeys[1].RefTable = PendingAuthSessionsTable
 	IdentityAdoptionDecisionsTable.Annotation = &entsql.Annotation{
 		Table: "identity_adoption_decisions",
+	}
+	OwnerPayoutsTable.Annotation = &entsql.Annotation{
+		Table: "owner_payouts",
 	}
 	PaymentAuditLogsTable.Annotation = &entsql.Annotation{
 		Table: "payment_audit_logs",

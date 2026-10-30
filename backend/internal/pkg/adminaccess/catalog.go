@@ -74,6 +74,7 @@ var definitions = []permissionDefinition{
 	{Permission{"owner.proxies", "管理自有代理", "所有者", "owner"}, []string{"GET /proxies", "GET /proxies/all", "GET /proxies/:id", "POST /proxies", "PUT /proxies/:id", "DELETE /proxies/:id", "POST /proxies/:id/test", "POST /proxies/:id/quality-check"}},
 	{Permission{"owner.usage", "查看自有账户用量明细（不含用户身份）", "所有者", "owner"}, []string{"GET /usage", "GET /usage/stats"}},
 	{Permission{"owner.compliance", "确认本人的后台合规声明", "所有者", "owner"}, []string{"GET /compliance", "POST /compliance/accept"}},
+	{Permission{"owner.settlement", "查看本人结算（不含倍率与用户身份）", "所有者", "owner"}, []string{"GET /owner-settlements/me"}},
 }
 
 // PermissionCatalog 仅列出管理密钥可授予的权限，所有者目录不对外展示。

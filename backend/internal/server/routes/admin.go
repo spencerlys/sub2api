@@ -77,6 +77,9 @@ func RegisterAdminRoutes(
 		// 优惠码管理
 		registerPromoCodeRoutes(admin, h)
 
+		// 所有者结算与财务对账
+		registerOwnerSettlementRoutes(admin, h)
+
 		// 系统设置
 		registerSettingsRoutes(admin, h, stepUpAuth)
 

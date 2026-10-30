@@ -40,6 +40,15 @@ export default {
     accountError: '账号错误',
     errorBreakdown: '{total} 次请求中 {errors} 次错误',
     tokensTitle: '输入 {input} / 输出 {output} / 缓存 {cache}',
+    totals: {
+      title: '合计（当前显示账号）',
+      requests: '请求数',
+      errors: '错误数',
+      tokensIn: '输入 Token',
+      tokensOut: '输出 Token',
+      tokensCache: '缓存 Token',
+      cost: '费用'
+    },
     errorCategory: {
       rate_limit: '限流',
       overloaded: '过载',

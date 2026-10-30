@@ -1,6 +1,11 @@
 <template>
   <AppLayout>
     <TablePageLayout>
+      <template #actions>
+        <OwnerEarningsCard v-if="isOwner" />
+        <AccountHealthTotals v-else :items="items" />
+      </template>
+
       <template #filters>
         <div class="flex flex-wrap items-center gap-3">
           <div class="tabs inline-flex" role="tablist" :aria-label="t('admin.accountHealth.rangeLabel')">
@@ -18,6 +23,8 @@
               {{ t(`admin.ops.timeRange.${option}`) }}
             </button>
           </div>
+
+          <OwnerSelect v-if="!isOwner" v-model="ownerUserId" />
 
           <span v-if="windowText" class="text-xs text-gray-500 dark:text-gray-400">{{ windowText }}</span>
 
@@ -138,9 +145,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import {
   ACCOUNT_HEALTH_ERROR_CATEGORIES,
@@ -155,6 +163,9 @@ import DataTable from '@/components/common/DataTable.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
+import AccountHealthTotals from '@/components/admin/account/AccountHealthTotals.vue'
+import OwnerEarningsCard from '@/components/admin/finance/OwnerEarningsCard.vue'
+import OwnerSelect from '@/components/admin/finance/OwnerSelect.vue'
 import {
   formatCompactNumber,
   formatCurrency,
@@ -172,8 +183,12 @@ import {
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+// Owners get their own earnings card; only admins can filter by owner.
+const isOwner = computed(() => authStore.isOwner)
 
 const range = ref<AccountHealthRange>('24h')
+const ownerUserId = ref<number | null>(null)
 const items = ref<AccountHealthItem[]>([])
 const loading = ref(false)
 const windowStart = ref('')
@@ -203,7 +218,10 @@ async function load() {
   const seq = ++requestSeq
   loading.value = true
   try {
-    const res = await adminAPI.accountHealth.getAccountHealth(range.value)
+    const res =
+      ownerUserId.value === null
+        ? await adminAPI.accountHealth.getAccountHealth(range.value)
+        : await adminAPI.accountHealth.getAccountHealth(range.value, ownerUserId.value)
     if (seq !== requestSeq) return
     items.value = res?.items ?? []
     windowStart.value = res?.start_time ?? ''
@@ -275,6 +293,8 @@ function formatMs(ms: number | null): string {
   if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`
   return `${Math.round(ms)}ms`
 }
+
+watch(ownerUserId, load)
 
 onMounted(load)
 </script>

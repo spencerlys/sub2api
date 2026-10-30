@@ -539,6 +539,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/finance',
+    name: 'AdminFinance',
+    component: () => import('@/views/admin/FinanceView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Finance',
+      titleKey: 'admin.finance.title',
+      descriptionKey: 'admin.finance.description'
+    }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),

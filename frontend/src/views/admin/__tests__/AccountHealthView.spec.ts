@@ -3,15 +3,24 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import type { AccountHealthItem, AccountHealthResponse } from '@/api/admin/accountHealth'
 
-const { getAccountHealth, showError } = vi.hoisted(() => ({
+const { getAccountHealth, showError, listUsers, getMyOwnerSettlement, authState } = vi.hoisted(() => ({
   getAccountHealth: vi.fn(),
-  showError: vi.fn()
+  showError: vi.fn(),
+  listUsers: vi.fn(),
+  getMyOwnerSettlement: vi.fn(),
+  authState: { isOwner: false, isAdmin: true }
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    accountHealth: { getAccountHealth }
+    accountHealth: { getAccountHealth },
+    users: { list: listUsers },
+    finance: { getMyOwnerSettlement }
   }
+}))
+
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => authState
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -86,6 +95,21 @@ describe('admin AccountHealthView', () => {
   beforeEach(() => {
     getAccountHealth.mockReset()
     showError.mockReset()
+    listUsers.mockReset()
+    listUsers.mockResolvedValue({ items: [{ id: 4, email: 'owner@example.com', username: 'own' }], total: 1 })
+    getMyOwnerSettlement.mockReset()
+    getMyOwnerSettlement.mockResolvedValue({
+      start_time: '',
+      end_time: '',
+      requests: 5,
+      official_cost: 9,
+      earnings: 3,
+      earnings_all_time: 6,
+      paid_total: 2,
+      unpaid: 4
+    })
+    authState.isOwner = false
+    authState.isAdmin = true
   })
 
   afterEach(() => {
@@ -185,5 +209,51 @@ describe('admin AccountHealthView', () => {
     await flushPromises()
 
     expect(showError).toHaveBeenCalledWith('boom')
+  })
+
+  it('lets admins filter by owner and shows totals for the visible rows', async () => {
+    getAccountHealth.mockResolvedValue(
+      response([
+        healthItem({ id: 1, requests_ok: 100, errors_total: 2, tokens_in: 1000, tokens_out: 50, tokens_cache: 7, cost: 1.25 }),
+        healthItem({ id: 2, requests_ok: 30, errors_total: 3, tokens_in: 500, tokens_out: 25, tokens_cache: 3, cost: 0.75 })
+      ])
+    )
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(listUsers).toHaveBeenCalledWith(1, 1000, { role: 'owner' })
+    expect(wrapper.find('[data-testid="owner-earnings-card"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="account-health-total-requests_ok"]').text()).toContain('130')
+    expect(wrapper.get('[data-testid="account-health-total-errors_total"]').text()).toContain('5')
+    expect(wrapper.get('[data-testid="account-health-total-tokens_in"]').text()).toContain('1.5K')
+    expect(wrapper.get('[data-testid="account-health-total-tokens_cache"]').text()).toContain('10')
+    expect(wrapper.get('[data-testid="account-health-total-cost"]').text()).toContain('2.00')
+
+    await wrapper.get('[data-testid="owner-select"]').setValue('4')
+    await flushPromises()
+    expect(getAccountHealth).toHaveBeenLastCalledWith('24h', 4)
+
+    await wrapper.get('[data-testid="account-health-range-7d"]').trigger('click')
+    await flushPromises()
+    expect(getAccountHealth).toHaveBeenLastCalledWith('7d', 4)
+
+    await wrapper.get('[data-testid="owner-select"]').setValue('')
+    await flushPromises()
+    expect(getAccountHealth).toHaveBeenLastCalledWith('7d')
+  })
+
+  it('shows owners their earnings card instead of the owner filter and totals', async () => {
+    authState.isOwner = true
+    authState.isAdmin = false
+    getAccountHealth.mockResolvedValue(response([healthItem()]))
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(getAccountHealth).toHaveBeenCalledWith('24h')
+    expect(getMyOwnerSettlement).toHaveBeenCalledTimes(1)
+    expect(listUsers).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="owner-earnings-card"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="owner-select"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="account-health-totals"]').exists()).toBe(false)
   })
 })

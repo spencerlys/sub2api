@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from '../client'
+import type { BalanceSource } from './balanceSource'
 import { listPlatformIds } from '@/constants/platformCatalog'
 import type { AccountPlatform, AdminUser, UpdateUserRequest, PaginatedResponse, ApiKey } from '@/types'
 
@@ -170,19 +171,46 @@ export async function deleteUser(id: number): Promise<{ message: string }> {
  * @param balance - New balance
  * @param operation - Operation type ('set', 'add', 'subtract')
  * @param notes - Optional notes for the balance adjustment
+ * @param source - Optional money source (gift / offline / correction); omitted = legacy (gift)
  * @returns Updated user
  */
 export async function updateBalance(
   id: number,
   balance: number,
   operation: 'set' | 'add' | 'subtract' = 'set',
-  notes?: string
+  notes?: string,
+  source?: BalanceSource
 ): Promise<AdminUser> {
-  const { data } = await apiClient.post<AdminUser>(`/admin/users/${id}/balance`, {
+  const body: Record<string, unknown> = {
     balance,
     operation,
     notes: notes || ''
-  })
+  }
+  if (source) body.source = source
+  const { data } = await apiClient.post<AdminUser>(`/admin/users/${id}/balance`, body)
+  return data
+}
+
+export type { BalanceSource } from './balanceSource'
+
+export interface BalanceRecordSourceResult {
+  id: number
+  balance_source: BalanceSource
+  notes: string
+}
+
+/**
+ * Re-classify the source of one admin balance adjustment record.
+ */
+export async function updateBalanceRecordSource(
+  userId: number,
+  recordId: number,
+  source: BalanceSource
+): Promise<BalanceRecordSourceResult> {
+  const { data } = await apiClient.put<BalanceRecordSourceResult>(
+    `/admin/users/${userId}/balance-history/${recordId}/source`,
+    { source }
+  )
   return data
 }
 
@@ -266,6 +294,8 @@ export interface BalanceHistoryItem {
   group_id: number | null
   validity_days: number
   notes: string
+  /** Only on admin_balance records. */
+  balance_source?: BalanceSource
   user?: { id: number; email: string } | null
   group?: { id: number; name: string } | null
 }
@@ -411,6 +441,7 @@ export const usersAPI = {
   update,
   delete: deleteUser,
   updateBalance,
+  updateBalanceRecordSource,
   updateConcurrency,
   batchUpdateLimits,
   toggleStatus,

@@ -183,6 +183,7 @@ export default {
     subscriptions: '订阅管理',
     accounts: '账号管理',
     accountHealth: '账号健康',
+    finance: '财务对账',
     plugins: '插件管理',
     proxies: 'IP管理',
     redeemCodes: '兑换码',
