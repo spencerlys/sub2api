@@ -15,6 +15,15 @@ function mountInput(value: number | null = null) {
 }
 
 describe('recharge amount input', () => {
+  it.each([
+    ['CNY', '¥'],
+    ['USD', '$'],
+    [undefined, '¥'],
+  ])('prefixes the custom amount with the %s symbol', (currency, symbol) => {
+    const wrapper = mount(AmountInput, { props: { modelValue: null, currency } })
+    expect(wrapper.get('[data-testid="custom-amount-currency"]').text()).toBe(symbol)
+  })
+
   it.each(['10abc', '10.555', '-10', '1e2'])('restores the accepted amount after rejecting %s', async (value) => {
     const wrapper = mountInput(10)
     const input = wrapper.get('input')

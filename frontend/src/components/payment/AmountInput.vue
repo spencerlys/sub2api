@@ -54,9 +54,10 @@
         {{ t('payment.customAmount') }}
       </label>
       <div class="relative">
-        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500">
-          $
-        </span>
+        <span
+          class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500"
+          data-testid="custom-amount-currency"
+        >{{ currencySymbol(currency) }}</span>
         <input
           type="text"
           inputmode="decimal"
@@ -75,7 +76,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { RechargeBonusTier } from '@/types/payment'
 import { formatRechargeBonusNumber, quoteRechargeBonus, type RechargeBonusMode } from '@/utils/rechargeBonus'
-import { formatPaymentAmount } from './currency'
+import { currencySymbol, formatPaymentAmount } from './currency'
 
 const props = withDefaults(defineProps<{
   amounts?: number[]
