@@ -117,6 +117,7 @@ export default {
       totals: 'Total',
       empty: 'No owner activity in this period',
       recordPayout: 'Record payout',
+      details: 'Details',
       hints: {
         activeAccounts: 'Accounts that are active and schedulable right now',
         officialCost: 'Usage at official list price',

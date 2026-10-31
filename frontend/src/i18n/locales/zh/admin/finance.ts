@@ -116,6 +116,7 @@ export default {
       totals: '合计',
       empty: '本期没有号主数据',
       recordPayout: '记录打款',
+      details: '明细',
       hints: {
         activeAccounts: '当前处于启用且可调度状态的账号',
         officialCost: '按官方价计算的用量',

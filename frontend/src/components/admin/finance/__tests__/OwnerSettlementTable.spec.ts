@@ -152,4 +152,25 @@ describe('OwnerSettlementTable', () => {
     expect(wrapper.text()).toContain('admin.finance.settlement.empty')
     expect(wrapper.find('[data-testid="settlement-totals"]').exists()).toBe(false)
   })
+  it('gives phones one card per owner with payable and unpaid up front, the rest under details', async () => {
+    const wrapper = mount(OwnerSettlementTable, { props: { items: [row({ earnings: 0.5 })], totals, payoutAction: true } })
+    expect(wrapper.get('[data-testid="settlement-cards"]').classes()).toContain('md:hidden')
+    expect(wrapper.get('table').element.parentElement!.classList).toContain('md:block')
+
+    const card = wrapper.get('[data-testid="settlement-card-3"]')
+    expect(card.text()).toContain('owner-a@example.com')
+    const shown = card.findAll(':scope > dl dd').map((d) => d.text())
+    expect(shown).toEqual(['$0.500000', '$100.00'])
+    const details = card.get('details')
+    for (const key of COLUMNS) expect(details.text()).toContain(`admin.finance.settlement.${key === 'gift_account_cost' ? 'giftAccountCost' : key.replace(/_([a-z])/g, (_, c) => c.toUpperCase())}`)
+
+    await card.get('[data-testid="settlement-card-payout-3"]').trigger('click')
+    expect(wrapper.emitted('record-payout')?.[0]?.[0]).toMatchObject({ owner_user_id: 3 })
+    expect(wrapper.get('[data-testid="settlement-card-totals"]').text()).toContain('$80.0000')
+  })
+
+  it('has bilingual details label', () => {
+    expect(zhFinance.finance.settlement.details).toBe('明细')
+    expect(enFinance.finance.settlement.details).toBe('Details')
+  })
 })

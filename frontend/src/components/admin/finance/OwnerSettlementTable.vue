@@ -1,5 +1,52 @@
 <template>
-  <div class="overflow-x-auto" :class="loading ? 'opacity-60' : ''">
+  <!-- Phones: one card per owner. The 12-column table would be a 1280px-wide
+       horizontal scroller that takes over the page. -->
+  <div class="divide-y divide-gray-100 md:hidden dark:divide-dark-700" :class="loading ? 'opacity-60' : ''" data-testid="settlement-cards">
+    <div v-for="row in items" :key="row.owner_user_id" class="space-y-3 px-4 py-3" :data-testid="`settlement-card-${row.owner_user_id}`">
+      <div class="min-w-0">
+        <p class="break-all font-medium text-gray-900 dark:text-white">{{ row.email }}</p>
+        <p v-if="row.username" class="text-xs text-gray-500 dark:text-gray-400">{{ row.username }}</p>
+      </div>
+      <dl class="grid grid-cols-2 gap-3">
+        <div v-for="col in keyColumns" :key="col.key">
+          <dt class="text-xs text-gray-500 dark:text-gray-400">{{ col.label }}</dt>
+          <dd class="text-base" :class="cellClass(col, row)">{{ col.format(row[col.key]) }}</dd>
+        </div>
+      </dl>
+      <details class="text-sm">
+        <summary class="cursor-pointer text-xs text-gray-500 dark:text-gray-400">{{ t('admin.finance.settlement.details') }}</summary>
+        <dl class="mt-2 space-y-1">
+          <div v-for="col in columns" :key="col.key" class="flex justify-between gap-3">
+            <dt class="text-gray-500 dark:text-gray-400">{{ col.label }}</dt>
+            <dd class="whitespace-nowrap" :class="cellClass(col, row)">{{ col.format(row[col.key]) }}</dd>
+          </div>
+        </dl>
+      </details>
+      <button
+        v-if="payoutAction"
+        type="button"
+        class="btn btn-secondary btn-sm w-full"
+        :data-testid="`settlement-card-payout-${row.owner_user_id}`"
+        @click="emit('record-payout', row)"
+      >
+        {{ t('admin.finance.settlement.recordPayout') }}
+      </button>
+    </div>
+    <p v-if="!items.length" class="px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+      {{ t('admin.finance.settlement.empty') }}
+    </p>
+    <div v-if="totals && items.length" class="bg-gray-50 px-4 py-3 dark:bg-dark-800" data-testid="settlement-card-totals">
+      <p class="mb-2 font-semibold text-gray-900 dark:text-white">{{ t('admin.finance.settlement.totals') }}</p>
+      <dl class="grid grid-cols-2 gap-3">
+        <div v-for="col in keyColumns" :key="col.key">
+          <dt class="text-xs text-gray-500 dark:text-gray-400">{{ col.label }}</dt>
+          <dd class="font-semibold text-gray-900 dark:text-white">{{ col.format(totals[col.key]) }}</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="hidden overflow-x-auto md:block" :class="loading ? 'opacity-60' : ''">
     <table class="w-full min-w-[1280px] text-sm">
       <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 dark:bg-dark-800 dark:text-gray-400">
         <tr>
@@ -125,6 +172,9 @@ const columns = computed<Column[]>(() => [
   { key: 'paid_total', label: t('admin.finance.settlement.paidTotal'), format: money },
   { key: 'unpaid', label: t('admin.finance.settlement.unpaid'), hint: t('admin.finance.settlement.hints.unpaid'), format: money }
 ])
+
+// What a phone card shows without expanding: owed this period and still unpaid.
+const keyColumns = computed(() => columns.value.filter((col) => col.key === 'earnings' || col.key === 'unpaid'))
 
 function cellClass(col: Column, row: OwnerSettlementRow): string {
   if (col.key === 'unpaid' && row.unpaid > 0) return 'font-semibold text-amber-600 dark:text-amber-400'
