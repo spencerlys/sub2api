@@ -72,6 +72,7 @@ func ProvideAuthService(
 	affiliateService *AffiliateService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	authGuardCache AuthGuardCache,
+	mcpOAuthService *MCPOAuthService,
 ) *AuthService {
 	svc := NewAuthService(
 		entClient,
@@ -91,6 +92,9 @@ func ProvideAuthService(
 	svc.SetTencentCaptchaService(tencentCaptchaService)
 	svc.SetAliyunCaptchaService(aliyunCaptchaService)
 	svc.SetAuthGuardCache(authGuardCache)
+	if mcpOAuthService != nil {
+		svc.SetMCPGrantRevoker(mcpOAuthService)
+	}
 	return svc
 }
 
@@ -863,6 +867,7 @@ var ProviderSet = wire.NewSet(
 	ProvideAuthService,
 	NewPasskeyService,
 	NewUserService,
+	NewMCPOAuthService,
 	ProvideAPIKeyService,
 	ProvideAPIKeyAuthCacheInvalidator,
 	ProvideAuthCacheInvalidationWorker,
