@@ -613,8 +613,9 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		body, _ := io.ReadAll(resp.Body)
 		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
 
-		// 403 表示账号被上游封禁，标记为 error 状态
-		if resp.StatusCode == http.StatusForbidden {
+		// 403 表示账号被上游封禁，标记为 error 状态；
+		// 但"本账号无权使用这个测试模型"只是模型级问题，不能把整个账号停掉。
+		if resp.StatusCode == http.StatusForbidden && !isAnthropicModelEntitlementRejection(resp.StatusCode, body, testModelID) {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
 

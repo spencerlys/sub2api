@@ -2571,6 +2571,12 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
+	// Anthropic：本账号无权使用该模型（400/403/404 且错误信息指向模型）只暂停这个模型、并修正本地列表，
+	// 不落到下面 403 → 账号 error 的处理；返回 true 让网关换号重试。
+	if modelAvailabilityEligible(account) && isAnthropicModelEntitlementRejection(statusCode, responseBody, requestedModel, account.GetMappedModel(requestedModel)) {
+		s.markAnthropicModelUnavailable(ctx, account, requestedModel, statusCode)
+		return true
+	}
 	var cooldown time.Duration
 	var reason string
 	switch {

@@ -899,6 +899,7 @@ var ProviderSet = wire.NewSet(
 	NewAccountHealthService,
 	NewOwnerSettlementService,
 	ProvideUsageCostLedgerService,
+	ProvideModelAvailabilitySyncService,
 	ProvideOpenAIOAuthService,
 	ProvideGrokOAuthService,
 	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
@@ -1042,6 +1043,18 @@ func ProvideUsageCostLedgerService(repo UsageCostLedgerRepository, lockCache Lea
 	svc := NewUsageCostLedgerService(repo, time.Minute)
 	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
+	return svc
+}
+
+// ProvideModelAvailabilitySyncService creates the per-account upstream model list
+// sync (Anthropic, once a day per account at a random time, leader-locked). It is
+// started only when gateway.model_availability_routing_enabled is on.
+func ProvideModelAvailabilitySyncService(cfg *config.Config, accountRepo AccountRepository, accountTest *AccountTestService, lockCache LeaderLockCache, db *sql.DB) *ModelAvailabilitySyncService {
+	svc := NewModelAvailabilitySyncService(accountRepo, accountTest)
+	svc.SetLeaderLock(lockCache, db)
+	if cfg != nil && cfg.Gateway.ModelAvailabilityRoutingEnabled && accountTest != nil {
+		svc.Start()
+	}
 	return svc
 }
 

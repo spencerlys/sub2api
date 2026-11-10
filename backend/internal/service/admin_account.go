@@ -129,6 +129,10 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"openai_compact_last_status":             {},
 	"openai_compact_last_error":              {},
 	"antigravity_credits_overages":           {},
+	UpstreamModelsExtraKey:                   {},
+	UpstreamModelsSyncedAtExtraKey:           {},
+	UpstreamModelsNextSyncAtExtraKey:         {},
+	UpstreamModelsLastErrorExtraKey:          {},
 	"antigravity_force_token_refresh":        {},
 	"antigravity_force_token_refresh_at":     {},
 	"antigravity_force_token_refresh_reason": {},
@@ -501,6 +505,10 @@ func stripOwnerAccountBilling(ctx context.Context, rateMultiplier **float64, pro
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
 	stripOwnerAccountBilling(ctx, &input.RateMultiplier, &input.ProbeEnabled, nil, input.Extra)
+	// 新账号的本地模型列表由同步任务首次写入（见 model_availability_sync.go），不接受表单值。
+	for _, key := range upstreamModelsExtraKeys {
+		delete(input.Extra, key)
+	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -731,6 +739,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		// 目录观察和能力 metadata 只由同步写入。表单里的旧值或注入值不能进入本次更新。
 		delete(normalizedExtra, grokObservedModelsExtraKey)
 		delete(normalizedExtra, UpstreamModelMetadataExtraKey)
+		// 本地上游模型列表只由同步任务与真实失败写入（model_availability.go）。
+		for _, key := range upstreamModelsExtraKeys {
+			delete(normalizedExtra, key)
+			if v, ok := account.Extra[key]; ok {
+				normalizedExtra[key] = v
+			}
+		}
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
 		for _, key := range []string{
 			"quota_used",
@@ -1055,6 +1070,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	delete(input.Extra, OllamaCloudUsageSnapshotExtraKey)
 	delete(input.Extra, OpenCodeGoUsageAutoRefreshExtraKey)
 	delete(input.Extra, OpenCodeGoUsageSnapshotExtraKey)
+	for _, key := range upstreamModelsExtraKeys {
+		delete(input.Extra, key)
+	}
 
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
 		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)

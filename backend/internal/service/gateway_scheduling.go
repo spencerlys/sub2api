@@ -2688,6 +2688,7 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 	if account.Platform == PlatformOpenAI && account.IsOpenAIPassthroughEnabled() {
 		return true
 	}
+	originalModel := requestedModel
 	// OAuth/SetupToken 账号使用 Anthropic 标准映射（短ID → 长ID）
 	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
 		if account.Type == AccountTypeServiceAccount {
@@ -2697,5 +2698,13 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		}
 	}
 	// 其他平台使用账户的模型支持检查
-	return account.IsModelSupported(requestedModel)
+	if !account.IsModelSupported(requestedModel) {
+		return false
+	}
+	// 按账号可用模型路由：只看本地保存的上游列表，不在请求时访问上游（见 model_availability.go）。
+	// 所有选号路径（含粘性会话复用）与 404 诊断都经过这里。
+	if s.modelAvailabilityRoutingEnabled() && !account.UpstreamModelAvailable(originalModel) {
+		return false
+	}
+	return true
 }
