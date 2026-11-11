@@ -404,7 +404,7 @@ describe('PaymentView recharge rate preview', () => {
 
     expect(translate).toHaveBeenCalledWith('payment.rechargeRatePreview', {
       currency: 'USD',
-      usd: '0.5000',
+      usd: '0.50',
     })
     expect(en.payment.rechargeRatePreview).toBe('Current rate: 1 {currency} = {usd} USD')
     expect(zh.payment.rechargeRatePreview).toBe('当前倍率：1 {currency} = {usd} USD')

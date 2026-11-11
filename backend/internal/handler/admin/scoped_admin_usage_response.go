@@ -116,7 +116,8 @@ type adminUsageLogWithSplit struct {
 
 func adminUsageLogResponses(c *gin.Context, records []service.UsageLog, splits map[int64]service.UsageRowSettlement) any {
 	owner := adminaccess.OwnerFromContext(c.Request.Context()) != nil
-	if owner || adminaccess.FromContext(c.Request.Context()) != nil {
+	// 全权管理密钥（FullAccess）与管理员一样拿完整行；受限密钥与所有者走裁剪。
+	if owner || adminaccess.RestrictedFromContext(c.Request.Context()) != nil {
 		out := make([]gin.H, 0, len(records))
 		for i := range records {
 			item := scopedAdminUsageLogResponse(&records[i])
