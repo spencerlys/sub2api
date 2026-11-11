@@ -125,7 +125,6 @@ func provideCleanup(
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	balanceRechargeRate *service.BalanceRechargeRateService,
 	usageCostLedger *service.UsageCostLedgerService,
-	modelAvailabilitySync *service.ModelAvailabilitySyncService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
 	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
@@ -389,12 +388,6 @@ func provideCleanup(
 			{"UsageCostLedgerService", func() error {
 				if usageCostLedger != nil {
 					usageCostLedger.Stop()
-				}
-				return nil
-			}},
-			{"ModelAvailabilitySyncService", func() error {
-				if modelAvailabilitySync != nil {
-					modelAvailabilitySync.Stop()
 				}
 				return nil
 			}},

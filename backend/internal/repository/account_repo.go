@@ -70,10 +70,6 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 	"codex_referral_snapshot":    {},
 	"grok_billing_snapshot":      {},
 	"session_window_utilization": {},
-	// 本地上游模型列表的同步时间与错误不影响调度；列表本身（upstream_models）会触发调度刷新。
-	service.UpstreamModelsSyncedAtExtraKey:   {},
-	service.UpstreamModelsNextSyncAtExtraKey: {},
-	service.UpstreamModelsLastErrorExtraKey:  {},
 }
 
 const postgresParameterBatchSize = 50000

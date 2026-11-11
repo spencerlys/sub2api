@@ -1186,10 +1186,6 @@ type GatewayConfig struct {
 	// 是否允许对部分 400 错误触发 failover（默认关闭以避免改变语义）
 	FailoverOn400 bool `mapstructure:"failover_on_400"`
 
-	// ModelAvailabilityRoutingEnabled 按账号可用模型路由（Anthropic）：每个账号每天随机时刻同步一次上游
-	// /v1/models 列表，请求时只把模型分给列表里有它的账号。关闭后既不同步也不过滤（默认开启）。
-	ModelAvailabilityRoutingEnabled bool `mapstructure:"model_availability_routing_enabled"`
-
 	// 账户切换最大次数（遇到上游错误时切换到其他账户的次数上限）
 	MaxAccountSwitches int `mapstructure:"max_account_switches"`
 	// Gemini 账户切换最大次数（Gemini 平台单独配置，因 API 限制更严格）
@@ -2578,7 +2574,6 @@ func setDefaults() {
 	viper.SetDefault("gateway.log_upstream_error_body_max_bytes", 2048)
 	viper.SetDefault("gateway.inject_beta_for_apikey", false)
 	viper.SetDefault("gateway.failover_on_400", false)
-	viper.SetDefault("gateway.model_availability_routing_enabled", true)
 	viper.SetDefault("gateway.max_account_switches", 10)
 	viper.SetDefault("gateway.max_account_switches_gemini", 3)
 	viper.SetDefault("gateway.max_same_account_retries_gemini", 4)
